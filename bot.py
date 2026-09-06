@@ -1,10 +1,25 @@
+import os
 import time
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import yfinance as yf
 import mplfinance as mpf
 
 BOT_TOKEN = "8695074642:AAHGHqaS1q-EkoEL5tY-gv7yvj5GAaF3lJ8"
 CHAT_ID = "1152142289"
+
+# Render ko 24/7 active rakhne ke liye lightweight web server
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is Running 24/7!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
 
 def send_telegram_alert(img_path, caption_text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -18,11 +33,10 @@ def generate_chart(df):
 
 def check_market():
     last_reported_drop = 0
-    print("Bot active ho chuka hai...")
+    print("Bot loop start...")
 
-    # Startup test ping
     test_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(test_url, json={"chat_id": CHAT_ID, "text": "🚀 Cloud Bot 24/7 Active! NIFTYBEES scanning shuru."})
+    requests.post(test_url, json={"chat_id": CHAT_ID, "text": "🚀 NIFTYBEES Bot 24/7 Permanent Active!"})
 
     while True:
         try:
@@ -75,4 +89,8 @@ def check_market():
             time.sleep(15)
 
 if __name__ == "__main__":
+    # Web server ko background thread me chalayein
+    t = threading.Thread(target=run_web_server, daemon=True)
+    t.start()
+    # Market scanner start karein
     check_market()
