@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+import xml.etree.ElementTree as ET
 from datetime import datetime
 import pytz
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -11,7 +12,7 @@ import mplfinance as mpf
 BOT_TOKEN = "8695074642:AAHGHqaS1q-EkoEL5tY-gv7yvj5GAaF3lJ8"
 CHAT_ID = "1152142289"
 
-# --- 1. 24/7 Keep-Alive Web Server for Render ---
+# Render keep-alive server
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -23,10 +24,9 @@ def run_web_server():
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
-# --- 2. Telegram Helper Functions ---
 def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+    requests.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": False})
 
 def send_telegram_alert(img_path, caption_text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -38,19 +38,70 @@ def generate_chart(df):
     mpf.plot(df.tail(30), type='candle', style='charles', savefig=chart_path, volume=False)
     return chart_path
 
-# --- 3. Monday 9:15 AM Weekly Comprehensive Report ---
+# --- Real-Time Market News Scanner ---
+def scan_market_news():
+    seen_news_links = set()
+    feed_url = "https://news.google.com/rss/search?q=NIFTY+OR+NIFTYBEES+OR+%22Indian+Stock+Market%22+when:1h&hl=en-IN&gl=IN&ceid=IN:en"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    # Pehli baar me current feed ke links yaad rakh lo taaki shuru me purani news ka spam na ho
+    try:
+        res = requests.get(feed_url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            root = ET.fromstring(res.content)
+            for item in root.findall(".//item"):
+                link = item.find("link")
+                if link is not None and link.text:
+                    seen_news_links.add(link.text.strip())
+    except Exception:
+        pass
+
+    while True:
+        try:
+            res = requests.get(feed_url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                root = ET.fromstring(res.content)
+                for item in root.findall(".//item"):
+                    link_elem = item.find("link")
+                    title_elem = item.find("title")
+                    pub_elem = item.find("pubDate")
+                    
+                    if link_elem is not None and title_elem is not None:
+                        link = link_elem.text.strip()
+                        title = title_elem.text.strip()
+                        pub_time = pub_elem.text.strip() if pub_elem is not None else "Just Now"
+
+                        if link not in seen_news_links:
+                            seen_news_links.add(link)
+                            news_msg = (
+                                f"⚡ *MARKET BREAKING NEWS*\n"
+                                f"━━━━━━━━━━━━━━━━━━━\n"
+                                f"📰 *Headline:*\n{title}\n\n"
+                                f"🕒 *Time:* `{pub_time}`\n"
+                                f"🔗 [Click Here to Read Full Story]({link})\n"
+                                f"━━━━━━━━━━━━━━━━━━━\n"
+                                f"📌 *Impact: NIFTY 50 / NIFTYBEES Radar*"
+                            )
+                            send_telegram_msg(news_msg)
+
+            # Memory clean-up (cache 500 links se bada na ho)
+            if len(seen_news_links) > 500:
+                seen_news_links = set(list(seen_news_links)[-200:])
+        except Exception:
+            pass
+
+        time.sleep(30)  # Har 30 second me breaking news check hogi
+
+# --- Weekly Monday Strategy Report ---
 def send_weekly_summary():
     try:
         etf = yf.Ticker("NIFTYBEES.NS")
         idx = yf.Ticker("^NSEI")
         
-        # Pichle 1-2 week ka daily data
         df_etf = etf.history(period="1mo", interval="1d")
         df_idx = idx.history(period="1mo", interval="1d")
         
-        # Pichle pure week ke 5 sessions
         last_week_data = df_etf.iloc[-6:-1]
-        
         week_open = last_week_data['Open'].iloc[0]
         week_close = last_week_data['Close'].iloc[-1]
         week_high = last_week_data['High'].max()
@@ -59,7 +110,6 @@ def send_weekly_summary():
         net_change_pct = ((week_close - week_open) / week_open) * 100
         total_swing_pct = ((week_high - week_low) / week_low) * 100
         
-        # Index ka weekly performance
         idx_week_data = df_idx.iloc[-6:-1]
         idx_open = idx_week_data['Open'].iloc[0]
         idx_close = idx_week_data['Close'].iloc[-1]
@@ -67,16 +117,14 @@ def send_weekly_summary():
         
         if net_change_pct < 0:
             trend_badge = f"📉 FALL (-{abs(net_change_pct):.2f}%)"
-            target_pct = abs(net_change_pct)
-            # Minimum target 2% rakhenge agar fall chota ho
-            target_pct = max(target_pct, 2.0)
+            target_pct = max(abs(net_change_pct), 2.0)
             target_price = week_close * (1 + (target_pct / 100))
-            advice = f"Market correction mode me raha. Dip buy hold karein for minimum *+{target_pct:.2f}%* bounce target (₹{target_price:.2f})."
+            advice = f"Dip buy hold karein for minimum *+{target_pct:.2f}%* bounce target (₹{target_price:.2f})."
         else:
             trend_badge = f"📈 GAIN (+{net_change_pct:.2f}%)"
             target_pct = 2.0
             target_price = week_close * 1.02
-            advice = f"Market bullish raha. Naye dips par buy karein, target standard *+2.00%* (₹{target_price:.2f})."
+            advice = f"Market bullish. Naye dips par accumulate karein, target standard *+2.00%* (₹{target_price:.2f})."
             
         report_msg = (
             f"📊 *NIFTYBEES WEEKLY STRATEGY REPORT*\n"
@@ -87,7 +135,7 @@ def send_weekly_summary():
             f"• Close Price: ₹{week_close:.2f}\n"
             f"• Week High: ₹{week_high:.2f}\n"
             f"• Week Low: ₹{week_low:.2f}\n"
-            f"• Total Swing (Volatility): {total_swing_pct:.2f}%\n"
+            f"• Total Swing: {total_swing_pct:.2f}%\n"
             f"• Nifty 50 Index: {idx_change_pct:+.2f}%\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
             f"🎯 *Weekly Target Setup:*\n"
@@ -100,21 +148,20 @@ def send_weekly_summary():
     except Exception as e:
         print(f"Weekly report error: {e}")
 
-# --- 4. Main Market Monitoring Loop ---
+# --- Market Monitoring Loop ---
 def check_market():
     last_reported_drop = 0
     weekly_report_sent_date = ""
     ist = pytz.timezone("Asia/Kolkata")
     
-    print("Bot scanner started...")
-    send_telegram_msg("🚀 *NIFTYBEES Bot Active: 24/7 Keep-Alive & Weekly Strategy Integrated!*")
+    send_telegram_msg("🚀 *NIFTYBEES Super Bot Active: 24/7 Server + Weekly Setup + Realtime News Live!*")
 
     while True:
         try:
             now = datetime.now(ist)
             today_str = now.strftime("%Y-%m-%d")
             
-            # Monday (0) ko 9:15 AM par weekly report bhejega (sirf 1 baar)
+            # Monday 9:15 AM Weekly Report
             if now.weekday() == 0 and now.hour == 9 and now.minute >= 15 and weekly_report_sent_date != today_str:
                 send_weekly_summary()
                 weekly_report_sent_date = today_str
@@ -131,18 +178,15 @@ def check_market():
                 curr_price = df_etf['Close'].iloc[-1]
                 day_high = df_etf['High'].max()
 
-                # Running weekly progress (pichle 5 din ke compare me)
                 week_open_price = df_daily['Open'].iloc[-5]
                 running_weekly_change = ((curr_price - week_open_price) / week_open_price) * 100
                 
-                # Dynamic bounce-back target
                 if running_weekly_change < 0:
                     current_target_pct = max(abs(running_weekly_change), 2.0)
                 else:
                     current_target_pct = 2.0
                 target_price = curr_price * (1 + (current_target_pct / 100))
 
-                # Pivot Levels
                 prev_high = df_etf['High'].iloc[-2]
                 prev_low = df_etf['Low'].iloc[-2]
                 prev_close = df_etf['Close'].iloc[-2]
@@ -163,7 +207,6 @@ def check_market():
                 else:
                     level_status = f"Consolidating (Pivot: ₹{pivot:.2f})"
 
-                # 1% ya usse jyada din ke high se drop par alert
                 if drop_pct >= last_reported_drop + 1.0:
                     last_reported_drop = int(drop_pct)
                     img = generate_chart(df_etf)
@@ -186,6 +229,13 @@ def check_market():
             time.sleep(15)
 
 if __name__ == "__main__":
-    t = threading.Thread(target=run_web_server, daemon=True)
-    t.start()
+    # Web server background thread
+    t_web = threading.Thread(target=run_web_server, daemon=True)
+    t_web.start()
+    
+    # Realtime News scanner background thread
+    t_news = threading.Thread(target=scan_market_news, daemon=True)
+    t_news.start()
+    
+    # Main price & weekly scanner
     check_market()
