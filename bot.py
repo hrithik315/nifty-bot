@@ -16,7 +16,7 @@ BOT_TOKEN = "8695074642:AAF44kKVuUiD5x7SMtW5M_nygHMoTIS0H5g"
 CHAT_ID = "1152142289"
 
 STATE_FILE = "portfolio_state.json"
-BROKERAGE_FEE = 40.0
+BROKERAGE_FEE = 40.0  # Buy + Sell flat charges
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -47,20 +47,19 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Professional Quantitative Trading Terminal Live!")
+        self.wfile.write(b"Dual-Stream Institutional Quant Terminal Active!")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
-# --- 2. Reliable Telegram Messenger (Safe Delivery) ---
+# --- 2. Reliable Telegram Messenger ---
 def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": str(text), "parse_mode": "Markdown", "disable_web_page_preview": True}
     res = requests.post(url, json=payload, timeout=10)
     if res.status_code != 200:
-        # Fallback to plain text if markdown formatting encounters issues
         payload_plain = {"chat_id": CHAT_ID, "text": str(text), "disable_web_page_preview": True}
         requests.post(url, json=payload_plain, timeout=10)
 
@@ -86,7 +85,7 @@ def generate_chart(df):
     mpf.plot(df.tail(30), type='candle', style='charles', savefig=chart_path, volume=False)
     return chart_path
 
-# --- 3. Mathematical Calculations ---
+# --- 3. Indicators ---
 def calculate_vwap(df):
     try:
         typical_price = (df['High'] + df['Low'] + df['Close']) / 3
@@ -122,7 +121,41 @@ def detect_symbol(query):
             return sym, name
     return "NIFTYBEES.NS", "NIFTYBEES"
 
-# --- 4. Institutional Demand Zone Engine ---
+# --- 4. Institutional Deep-Scan Research Engine ---
+def fetch_institutional_drivers():
+    drivers = {}
+    bull_count = 0
+    hw_list = [("HDFCBANK.NS", "HDFC Bank (~11%)"), ("RELIANCE.NS", "Reliance (~9%)"), ("ICICIBANK.NS", "ICICI Bank (~8%)")]
+    
+    for sym, label in hw_list:
+        try:
+            h = yf.Ticker(sym).history(period="2d")
+            c = float(h['Close'].iloc[-1])
+            p = float(h['Close'].iloc[-2])
+            chg = ((c - p) / p) * 100
+            if chg >= -0.2:  # Holding ground or green
+                bull_count += 1
+            drivers[label] = f"₹{c:.1f} ({chg:+.2f}%)"
+        except Exception:
+            drivers[label] = "N/A"
+
+    # India VIX (Market Fear Gauge)
+    vix_val = 14.0
+    vix_status = "STABLE"
+    try:
+        vix_df = yf.Ticker("^INDIAVIX").history(period="2d")
+        vix_val = float(vix_df['Close'].iloc[-1])
+        vix_prev = float(vix_df['Close'].iloc[-2])
+        vix_chg = ((vix_val - vix_prev) / vix_prev) * 100
+        if vix_val >= 16.5 or vix_chg > 5.0:
+            vix_status = "⚠️ ELEVATED / PANIC RISK"
+        else:
+            vix_status = "🟢 CALM / CONSOLIDATION"
+    except Exception:
+        pass
+
+    return bull_count, drivers, vix_val, vix_status
+
 def calculate_trade_setup(symbol):
     ticker = yf.Ticker(symbol)
     df_1m = ticker.history(period="1d", interval="1m")
@@ -136,38 +169,23 @@ def calculate_trade_setup(symbol):
     vwap_val = calculate_vwap(df_15m)
     rsi_15m = calculate_rsi(df_15m['Close'])
 
-    # Key Support Structures
     prev_day_low = float(df_daily['Low'].iloc[-2]) if len(df_daily) >= 2 else day_low * 0.99
     swing_5d_low = float(df_15m['Low'].min())
 
-    # Fibonacci 61.8% Golden Support
     high_month = float(df_1h['High'].max())
     low_month = float(df_1h['Low'].min())
     fib_618 = float(high_month - (0.618 * (high_month - low_month)))
 
-    # Entry must strictly be below current market price (real discount)
     supports_below = [s for s in [prev_day_low, swing_5d_low, fib_618] if s < (curr_p - 0.25)]
-
     if supports_below:
         optimal_entry = round(max(supports_below), 2)
     else:
-        # If asset is trading at fresh monthly low, calculate demand zone at 0.75% discount
         optimal_entry = round(curr_p * 0.9925, 2)
 
     diff_to_entry = round(curr_p - optimal_entry, 2)
     sl = round(optimal_entry * 0.992, 2)
     t1 = round(optimal_entry * 1.015, 2)
     t2 = round(optimal_entry * 1.025, 2)
-
-    # Reversal confirmation check on 15m candle
-    curr_c = df_15m.iloc[-1]
-    prev_c = df_15m.iloc[-2]
-    lower_wick = min(curr_c['Open'], curr_c['Close']) - curr_c['Low']
-    body = abs(curr_c['Close'] - curr_c['Open'])
-    has_wick_rejection = lower_wick > (body * 1.2)
-    has_bull_close = curr_c['Close'] > prev_c['High']
-
-    is_confirmed_reversal = (has_wick_rejection or has_bull_close) and (curr_p <= optimal_entry + 0.10)
 
     return {
         "curr_p": curr_p,
@@ -179,67 +197,93 @@ def calculate_trade_setup(symbol):
         "diff_to_entry": diff_to_entry,
         "sl": sl,
         "t1": t1,
-        "t2": t2,
-        "is_confirmed_reversal": is_confirmed_reversal
+        "t2": t2
     }
 
-def get_actionable_setup_card(user_query):
+# --- 5. Generate Dual Messages ---
+def generate_dual_stream(user_query):
     target_sym, asset_name = detect_symbol(user_query)
     try:
         data = calculate_trade_setup(target_sym)
+        bull_count, hw_drivers, vix_val, vix_status = fetch_institutional_drivers()
+
         state = load_state()
         state["tracked_entry_level"] = data["optimal_entry"]
         state["last_stage_alerted"] = ""
         save_state(state)
 
-        # Action Verdict Logic
-        if data["curr_p"] <= data["optimal_entry"] + 0.05:
-            if data["is_confirmed_reversal"]:
-                status_header = "🟢 **BUY SIGNAL ACTIVATED (REVERSAL CONFIRMED)**"
-                action_text = (
-                    f"✅ **Market ne support par bounce confirm kiya hai.**\n\n"
-                    f"👉 **EXECUTE ORDER:** Buy at **₹{data['curr_p']:.2f}** (Tranche 1)\n"
-                    f"🛑 **Stop-Loss:** ₹{data['sl']:.2f}\n"
-                    f"🎯 **Target 1 (+1.5%):** ₹{data['t1']:.2f}\n"
-                    f"🎯 **Target 2 (+2.5%):** ₹{data['t2']:.2f}"
-                )
-            else:
-                status_header = "🟡 **IN DEMAND ZONE (AWAITING BOUNCE CANDLE)**"
-                action_text = (
-                    f"Price exact demand level par hai, lekin abhi girna ruka nahi hai.\n"
-                    f"👉 Ek 15m green candle close hone ka wait karein ya limit order laga kar rakhein."
-                )
+        calc_qty = state.get("qty", 100)
+        if calc_qty == 0: calc_qty = 100
+
+        entry = data["optimal_entry"]
+        t1 = data["t1"]
+        t2 = data["t2"]
+        sl = data["sl"]
+
+        net_t1 = ((t1 - entry) * calc_qty) - BROKERAGE_FEE
+        net_t2 = ((t2 - entry) * calc_qty) - BROKERAGE_FEE
+        net_sl = ((sl - entry) * calc_qty) - BROKERAGE_FEE
+
+        # === MESSAGE 1: Institutional Research & Drivers Audit ===
+        msg1 = (
+            f"🔬 *INSTITUTIONAL RESEARCH AUDIT: {asset_name}*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📊 *TOP HEAVYWEIGHTS SUPPORT ({bull_count}/3 Stabilized):*\n"
+            f"• HDFC Bank: {hw_drivers.get('HDFC Bank (~11%)', 'N/A')}\n"
+            f"• Reliance: {hw_drivers.get('Reliance (~9%)', 'N/A')}\n"
+            f"• ICICI Bank: {hw_drivers.get('ICICI Bank (~8%)', 'N/A')}\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"⚡ *MARKET VOLATILITY & RISK:*\n"
+            f"• India VIX: *{vix_val:.2f}* ({vix_status})\n"
+            f"• 15m VWAP: *₹{data['vwap']:.2f}* (Discount: {((data['curr_p']-data['vwap'])/data['vwap'])*100:+.2f}%)\n"
+            f"• 15m RSI: *{data['rsi']:.1f}*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 *Institutional Verdict:* {'🟢 Heavyweights holding support. Reversal safe.' if bull_count >= 2 else '🔴 Heavyweights selling off. Do not catch falling knife.'}"
+        )
+
+        # === MESSAGE 2: Exact Trade Execution & In-Hand Profit Ticket ===
+        is_safe_entry = (data["curr_p"] <= entry + 0.05) and (bull_count >= 2) and ("PANIC" not in vix_status)
+
+        if is_safe_entry:
+            status_tag = "🟢 **BUY CONFIRMED (INSTITUTIONAL CONFLUENCE)**"
+            call = (
+                f"✅ All parameters aligned. Heavyweights stabilised.\n\n"
+                f"👉 **EXECUTE NOW:** Buy at **₹{data['curr_p']:.2f}** (Tranche 1)\n"
+                f"🛑 **Stop-Loss:** ₹{sl:.2f}\n"
+                f"🎯 **Target 1 (+1.5%):** ₹{t1:.2f}\n"
+                f"🎯 **Target 2 (+2.5%):** ₹{t2:.2f}"
+            )
         else:
-            status_header = "⛔ **NO TRADE AT CURRENT PRICE (WAIT FOR DIP)**"
-            action_text = (
-                f"❌ **Current market price (₹{data['curr_p']:.2f}) par buy mat karein.**\n"
-                f"Running price par buy karne se risk high hota hai.\n\n"
-                f"📍 **Actionable Limit Order Level:** **₹{data['optimal_entry']:.2f}**\n"
-                f"📏 **Required Dip:** Abhi **₹{data['diff_to_entry']:.2f}** ka dip baaki hai.\n\n"
-                f"🎯 **Post-Entry Targets:**\n"
-                f"• Target 1 (+1.5%): ₹{data['t1']:.2f}\n"
-                f"• Target 2 (+2.5%): ₹{data['t2']:.2f}\n"
-                f"• Invalidation SL: ₹{data['sl']:.2f}\n\n"
-                f"💡 Broker terminal me **₹{data['optimal_entry']:.2f}** par GTT/Limit order place karein."
+            status_tag = "🛑 **DO NOT BUY AT RUNNING PRICE**"
+            reason = f"Abhi ₹{data['diff_to_entry']:.2f} ka dip baaki hai" if data["curr_p"] > entry + 0.05 else "Heavyweights me selling jaari hai"
+            call = (
+                f"❌ Running price **₹{data['curr_p']:.2f}** par buy mat karein.\n"
+                f"Reason: {reason}.\n\n"
+                f"📍 **Actionable Limit Order Level:** **₹{entry:.2f}**\n"
+                f"📏 **Required Dip:** **₹{data['diff_to_entry']:.2f}** to true demand zone.\n"
+                f"💡 Terminal me **₹{entry:.2f}** par Limit Order laga kar wait karein."
             )
 
-        card = (
-            f"🎯 *TRADE ORDER TICKET: {asset_name}*\n"
+        msg2 = (
+            f"🎯 *TRADE EXECUTION TICKET: {asset_name}*\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 *Live Price:* ₹{data['curr_p']:.2f}\n"
-            f"📉 *Day Low:* ₹{data['day_low']:.2f} | 📈 *Day High:* ₹{data['day_high']:.2f}\n"
-            f"📐 *VWAP:* ₹{data['vwap']:.2f} | ⚡ *15m RSI:* {data['rsi']:.1f}\n"
+            f"💰 *Current Price:* ₹{data['curr_p']:.2f} | *Day Low:* ₹{data['day_low']:.2f}\n"
+            f"{status_tag}\n\n"
+            f"{call}\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"{status_header}\n\n"
-            f"{action_text}\n"
+            f"💵 *EXPECTED IN-HAND NET PROFIT ({calc_qty} Units - ₹40 Brokerage Cut):*\n"
+            f"🟢 **Target 1 (₹{t1:.2f}):** Net In-Hand: *+₹{net_t1:.2f}*\n"
+            f"🟢 **Target 2 (₹{t2:.2f}):** Net In-Hand: *+₹{net_t2:.2f}*\n"
+            f"🔴 **Stop-Loss Hit (₹{sl:.2f}):** Net In-Hand: *₹{net_sl:.2f}*\n"
             f"━━━━━━━━━━━━━━━━━━━"
         )
-        return card
+
+        return msg1, msg2
 
     except Exception as e:
-        return f"⚠️ Calculation error: {str(e)}"
+        return f"⚠️ Audit error: {str(e)}", None
 
-# --- 5. Interactive Telegram Listener ---
+# --- 6. Interactive Telegram Listener ---
 def telegram_listener():
     offset = 0
     while True:
@@ -269,15 +313,15 @@ def telegram_listener():
                             state["awaiting_qty"] = True
                             save_state(state)
 
-                            send_telegram_msg(f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n👉 Reply me apni Quantity bhejein (e.g. `20`).")
+                            send_telegram_msg(f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n👉 Quantity reply karein (e.g. `50`).")
                         elif data == "skip_entry":
                             state["status"] = "WAITING_STRONG"
                             save_state(state)
-                            send_telegram_msg("👌 *Entry Skipped.* Bot waiting for next clean setup.")
+                            send_telegram_msg("👌 *Entry Skipped.* Bot waiting for next optimal level.")
                         elif data == "exit_trade":
                             state = {"tranche_level": 0, "entry_price": 0.0, "qty": 0, "status": "IDLE", "awaiting_qty": False, "trailing_sl": 0.0, "max_price_seen": 0.0, "last_alerted_price": 0.0, "tracked_entry_level": 0.0, "last_stage_alerted": ""}
                             save_state(state)
-                            send_telegram_msg("🏁 *Position Closed.* Portfolio reset to 100% Cash.")
+                            send_telegram_msg("🏁 *Position Closed.* Capital 100% Free.")
 
                     elif "message" in update and "text" in update["message"]:
                         msg_text = update["message"]["text"].strip()
@@ -302,28 +346,33 @@ def telegram_listener():
                                 save_state(state)
 
                                 target_p = avg_price * 1.025
+                                net_target_pnl = ((target_p - avg_price) * total_qty) - BROKERAGE_FEE
                                 send_telegram_msg(
-                                    f"💼 *POSITION RECORDED*\n"
+                                    f"💼 *PORTFOLIO RECORDED*\n"
                                     f"━━━━━━━━━━━━━━━━━━━\n"
-                                    f"📦 Total Units: *{total_qty}*\n"
-                                    f"💰 Net Avg Buy: *₹{avg_price:.2f}*\n"
-                                    f"🎯 Profit Target (+2.5%): *₹{target_p:.2f}*\n"
+                                    f"📦 Units: *{total_qty}*\n"
+                                    f"💰 Avg Buy: *₹{avg_price:.2f}*\n"
+                                    f"🎯 Target (+2.5%): *₹{target_p:.2f}*\n"
+                                    f"💵 Target Hit par In-Hand: *+₹{net_target_pnl:.2f}*\n"
                                     f"━━━━━━━━━━━━━━━━━━━"
                                 )
                                 continue
 
-                        # Immediate Real Execution Card
-                        card_response = get_actionable_setup_card(msg_text)
-                        send_telegram_msg(card_response)
+                        # Send Dual Stream Messages
+                        m1, m2 = generate_dual_stream(msg_text)
+                        send_telegram_msg(m1)
+                        if m2:
+                            time.sleep(0.5)
+                            send_telegram_msg(m2)
 
         except Exception:
             pass
         time.sleep(1)
 
-# --- 6. Live Proximity & Autonomous Trade Execution Radar ---
+# --- 7. Live Proximity & Autonomous Trade Execution Radar ---
 def check_market():
     ist = pytz.timezone("Asia/Kolkata")
-    send_telegram_msg("🚀 *Quantitative Order Execution Terminal Active!*\n• Strict Institutional Support Tracking\n• Real-Time Proximity Countdown Live.")
+    send_telegram_msg("🚀 *Dual-Stream Institutional Terminal Live!*\n• Stream 1: Heavyweights + India VIX Audit\n• Stream 2: Exact Execution Ticket & In-Hand P&L")
 
     while True:
         try:
@@ -336,12 +385,9 @@ def check_market():
                 df_15m = etf.history(period="5d", interval="15m")
 
                 curr_p = float(df_1m['Close'].iloc[-1])
-                vwap_val = calculate_vwap(df_15m)
-
                 state = load_state()
                 target_level = state.get("tracked_entry_level", 0.0)
 
-                # Initialize optimal entry level if not tracked yet
                 if target_level == 0.0:
                     data = calculate_trade_setup("NIFTYBEES.NS")
                     target_level = data["optimal_entry"]
@@ -351,39 +397,44 @@ def check_market():
                 diff = round(curr_p - target_level, 2)
                 last_stage = state.get("last_stage_alerted", "")
 
-                # Proximity Countdown Alerts
+                # Proximity Alerts
                 if 0.30 < diff <= 0.60 and last_stage != "STAGE_50":
                     state["last_stage_alerted"] = "STAGE_50"
                     save_state(state)
                     send_telegram_msg(
-                        f"⚠️ *SUPPORT LEVEL APPROACHING*\n"
+                        f"⚠️ *SUPPORT APPROACHING*\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
                         f"💰 Current Price: *₹{curr_p:.2f}*\n"
                         f"🎯 Target Support: *₹{target_level:.2f}*\n"
-                        f"📏 Abhi *₹{diff:.2f}* ka dip baaki hai. Broker terminal khol kar ready rahein."
+                        f"📏 Abhi *₹{diff:.2f}* ka dip baaki hai. Terminal ready rakhein."
                     )
                 elif 0.05 < diff <= 0.30 and last_stage != "STAGE_20":
                     state["last_stage_alerted"] = "STAGE_20"
                     save_state(state)
                     send_telegram_msg(
-                        f"🚨 *HIGH ALERT: VERY CLOSE TO ENTRY LEVEL*\n"
+                        f"🚨 *HIGH ALERT: VERY CLOSE TO DEMAND*\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
                         f"💰 Current Price: *₹{curr_p:.2f}*\n"
                         f"🎯 Target Support: *₹{target_level:.2f}*\n"
-                        f"📏 Sirf *₹{diff:.2f}* bacha hai! Limit order queue me daal sakte hain."
+                        f"📏 Sirf *₹{diff:.2f}* bacha hai! Heavyweights audit run karein."
                     )
                 elif diff <= 0.05 and last_stage != "TRIGGERED":
                     state["last_stage_alerted"] = "TRIGGERED"
                     save_state(state)
                     img = generate_chart(df_15m)
+                    
+                    calc_qty = state.get("qty", 100)
+                    if calc_qty == 0: calc_qty = 100
+                    exp_net = (((curr_p * 1.025) - curr_p) * calc_qty) - BROKERAGE_FEE
+                    
                     caption = (
-                        f"🔥 *EXECUTE ORDER NOW (DEMAND LEVEL REACHED)!*\n"
+                        f"🔥 *EXECUTE ORDER NOW (DEMAND HIT)!*\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
                         f"💰 Entry Price: *₹{curr_p:.2f}*\n"
-                        f"🎯 Target 1 (+1.5%): *₹{(curr_p * 1.015):.2f}*\n"
-                        f"🎯 Target 2 (+2.5%): *₹{(curr_p * 1.025):.2f}*\n"
+                        f"🎯 Target (+2.5%): *₹{(curr_p * 1.025):.2f}*\n"
+                        f"💵 Net In-Hand: *+₹{exp_net:.2f}* (After ₹40 Brokerage)\n"
                         f"🛑 Stop-Loss: *₹{(target_level * 0.992):.2f}*\n"
-                        f"👉 Action: Buy Tranche 1 (20% Capital)"
+                        f"👉 Action: Buy Tranche 1"
                     )
                     send_alert_with_buttons(img, caption, 1)
 
@@ -398,7 +449,7 @@ def check_market():
                         exit_kb = {"inline_keyboard": [[{"text": "🏁 Book Full Profit", "callback_data": "exit_trade"}]]}
                         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": CHAT_ID,
-                            "text": f"🎉 *TARGET HIT (+2.5%)*\nSell Price: ₹{curr_p:.2f} | Net Realized: *₹{net_pnl:+.2f}*",
+                            "text": f"🎉 *TARGET HIT (+2.5%)*\nSell Price: ₹{curr_p:.2f}\nNet Realized Profit: *₹{net_pnl:+.2f}* (Brokerage Deducted)",
                             "parse_mode": "Markdown",
                             "reply_markup": json.dumps(exit_kb)
                         })
