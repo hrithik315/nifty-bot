@@ -14,7 +14,7 @@ import mplfinance as mpf
 
 BOT_TOKEN = "8695074642:AAHGHqaS1q-EkoEL5tY-gv7yvj5GAaF3lJ8"
 CHAT_ID = "1152142289"
-GEMINI_API_KEY = "AQ.Ab8RN6J3F7_5sjgDnpk8afdb5mexzolX_DvnnsKB6bxDoktVZA"
+GEMINI_API_KEY = "AQ.Ab8RN6IfIXxacY3xBmfDVNkzFvg-zDq23SWQ7LdTCHBnAnE2JA"
 
 STATE_FILE = "portfolio_state.json"
 BROKERAGE_FEE = 40.0
@@ -121,7 +121,7 @@ def get_heavyweights_data():
             hw_stats.append(f"{name}: N/A")
     return bull_count, " | ".join(hw_stats)
 
-# --- 4. Super-Intelligent AI Engine ---
+# --- 4. Super-Intelligent AI Engine (Universal Auth Handler) ---
 def ask_gemini_market_analyst(user_query):
     try:
         etf = yf.Ticker("NIFTYBEES.NS")
@@ -170,27 +170,40 @@ LIVE METRICS (NSE Tick Data):
 - Macro Trend: {macro_trend}
 - Portfolio: {portfolio_info}
 
-RESPONSE FORMAT (Strictly follow this structure, professional Hinglish):
+RESPONSE FORMAT (Strictly follow this structure, professional Hindi/Hinglish):
 1. 🎯 **VERDICT:** (State one: BUY NOW / ACCUMULATE / STRICT HOLD / EXIT & BOOK PROFIT / WAIT FOR CONFIRMATION)
 2. 🔬 **TECHNICAL REASONING:**
    - Mention VWAP + RSI correlation.
    - Heavyweights institutional flow status.
    - Risk-to-Reward ratio estimation.
 3. ⚡ **ACTION PLAN:**
-   - Exact entry/exit price to watch.
+   - Exact price levels to watch.
    - Next Tranche level or Trailing SL level.
 
 No generic disclaimers. No emotional talk. Pure data precision under 160 words.
 """
 
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        res = requests.post(endpoint, json=payload, timeout=15)
+        
+        # Dual-Authentication Adapter (Bearer Token + Header Key)
+        endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GEMINI_API_KEY}",
+            "x-goog-api-key": GEMINI_API_KEY
+        }
+        
+        res = requests.post(endpoint, headers=headers, json=payload, timeout=15)
         
         if res.status_code == 200:
             return res.json()["candidates"][0]["content"]["parts"][0]["text"]
         else:
-            return f"⚠️ Live data fetched (Price: ₹{curr_price:.2f}, RSI: {rsi_15m:.1f}), but AI analysis server returned code {res.status_code}."
+            # Fallback URL format check
+            fb_url = f"{endpoint}?key={GEMINI_API_KEY}"
+            res_fb = requests.post(fb_url, json=payload, timeout=15)
+            if res_fb.status_code == 200:
+                return res_fb.json()["candidates"][0]["content"]["parts"][0]["text"]
+            return f"⚠️ Live data fetched (Price: ₹{curr_price:.2f}, RSI: {rsi_15m:.1f}), AI Auth Status Code: {res.status_code}."
     except Exception as err:
         return f"⚠️ Live data connection error: {err}"
 
