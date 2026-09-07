@@ -11,7 +11,6 @@ import pandas as pd
 import yfinance as yf
 import mplfinance as mpf
 
-# Updated Bot Token & Admin Chat ID
 BOT_TOKEN = "8695074642:AAF44kKVuUiD5x7SMtW5M_nygHMoTIS0H5g"
 CHAT_ID = "1152142289"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -53,14 +52,14 @@ def run_web_server():
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
-# --- 2. Safe Telegram Messenger ---
+# --- 2. Reliable Telegram Sender ---
 def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True}
-    res = requests.post(url, json=payload, timeout=10)
-    if res.status_code != 200:
-        payload_plain = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
-        requests.post(url, json=payload_plain, timeout=10)
+    payload = {"chat_id": CHAT_ID, "text": str(text), "disable_web_page_preview": True}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Telegram error: {e}")
 
 def send_alert_with_buttons(img_path, caption_text, tranche_next):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -76,7 +75,6 @@ def send_alert_with_buttons(img_path, caption_text, tranche_next):
         requests.post(url, data={
             'chat_id': CHAT_ID,
             'caption': caption_text,
-            'parse_mode': 'Markdown',
             'reply_markup': json.dumps(keyboard)
         }, files={'photo': photo})
 
@@ -111,7 +109,7 @@ def calculate_fibonacci(high, low):
         "fib_618": high - 0.618 * diff
     }
 
-# --- 4. Dynamic Symbol Detection & Multi-Stock Engine ---
+# --- 4. Dynamic Symbol Mapping ---
 def detect_symbol(query):
     q = query.upper()
     common = {
@@ -126,9 +124,11 @@ def detect_symbol(query):
             return sym, word
     return "NIFTYBEES.NS", "NIFTYBEES"
 
-def ask_groq_market_analyst(user_query):
+# --- 5. Async Worker for AI Analysis ---
+def process_ai_query(user_query):
     if not GROQ_API_KEY:
-        return "⚠️ GROQ_API_KEY Render Environment me set nahi hai."
+        send_telegram_msg("⚠️ GROQ_API_KEY Render Environment Variables me missing hai.")
+        return
 
     try:
         target_symbol, asset_name = detect_symbol(user_query)
@@ -153,14 +153,14 @@ Current Price: ₹{curr_price:.2f}
 RSI (Daily): {rsi_val:.1f}
 Fibonacci 61.8% Support: ₹{fibs['fib_618']:.2f}
 
-Format your response exactly like this in concise Hindi/Hinglish:
-🎯 **VERDICT:** (Direct price trajectory & bottom support zone)
-🔬 **LEVELS:**
+Provide a direct quantitative assessment in clean Hindi/Hinglish:
+🎯 VERDICT: (Bottom support / expected move)
+🔬 KEY LEVELS:
 - Immediate Support: ₹...
-- Downside Risk Level: ₹...
-- Upside Reversal Level: ₹...
-⚡ **ACTION PLAN:** (Clear advice on whether to buy, wait, or accumulate)
-Keep total answer under 120 words. No disclaimers.
+- Downside Risk (Agar support toota): ₹...
+- Upside Target: ₹...
+⚡ ACTION PLAN: (Clear guidance: Buy, Wait, or Hold)
+Keep total response under 120 words.
 """
         endpoint = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -172,22 +172,24 @@ Keep total answer under 120 words. No disclaimers.
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2
         }
-        res = requests.post(endpoint, headers=headers, json=payload, timeout=15)
         
+        res = requests.post(endpoint, headers=headers, json=payload, timeout=25)
         if res.status_code == 200:
-            return res.json()["choices"][0]["message"]["content"]
+            data = res.json()
+            answer = data["choices"][0]["message"]["content"]
+            send_telegram_msg(answer)
         else:
-            return f"⚠️ Groq API Error ({res.status_code}): {res.text}"
+            send_telegram_msg(f"⚠️ Groq API issue: Code {res.status_code}\n{res.text}")
     except Exception as err:
-        return f"⚠️ Calculation/API issue: {str(err)}"
+        send_telegram_msg(f"⚠️ Data extraction error: {str(err)}")
 
-# --- 5. Interactive Telegram Listener ---
+# --- 6. Telegram Listener ---
 def telegram_listener():
     offset = 0
     while True:
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=15"
-            res = requests.get(url, timeout=20).json()
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=10"
+            res = requests.get(url, timeout=15).json()
             if "result" in res:
                 for update in res["result"]:
                     offset = update["update_id"] + 1
@@ -211,18 +213,15 @@ def telegram_listener():
                             state["awaiting_qty"] = True
                             save_state(state)
                             
-                            send_telegram_msg(
-                                f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n"
-                                f"👉 Reply me apni Quantity bhejein (e.g., `20`)."
-                            )
+                            send_telegram_msg(f"✅ Tranche {t_num} Logged at ₹{p:.2f}!\nReply me Quantity bhejein (e.g. 20).")
                         elif data == "skip_entry":
                             state["status"] = "WAITING_STRONG"
                             save_state(state)
-                            send_telegram_msg("👌 *Entry Skipped.* Quantitative scanner waiting for next level.")
+                            send_telegram_msg("👌 Entry Skipped. Scanner waiting for higher confluence.")
                         elif data == "exit_trade":
                             state = {"tranche_level": 0, "entry_price": 0.0, "qty": 0, "status": "IDLE", "awaiting_qty": False, "trailing_sl": 0.0, "max_price_seen": 0.0, "last_alerted_price": 0.0}
                             save_state(state)
-                            send_telegram_msg("🏁 *Position Closed.* Portfolio reset to 100% Cash.")
+                            send_telegram_msg("🏁 Position Closed. Portfolio reset to 100% Cash.")
 
                     elif "message" in update and "text" in update["message"]:
                         msg_text = update["message"]["text"].strip()
@@ -248,35 +247,30 @@ def telegram_listener():
                                 
                                 target_p = avg_price * 1.025
                                 send_telegram_msg(
-                                    f"💼 *PORTFOLIO UPDATED*\n"
-                                    f"━━━━━━━━━━━━━━━━━━━\n"
-                                    f"📦 Units: *{total_qty}*\n"
-                                    f"💰 Avg Buy: *₹{avg_price:.2f}*\n"
-                                    f"🎯 Target (+2.5%): *₹{target_p:.2f}*\n"
-                                    f"━━━━━━━━━━━━━━━━━━━"
+                                    f"💼 PORTFOLIO UPDATED\n"
+                                    f"Units: {total_qty} | Avg Buy: ₹{avg_price:.2f} | Target (+2.5%): ₹{target_p:.2f}"
                                 )
                                 continue
 
-                        send_telegram_msg("🧠 *Analyzing market data & generating AI report...*")
-                        ai_verdict = ask_groq_market_analyst(msg_text)
-                        send_telegram_msg(ai_verdict)
+                        send_telegram_msg("🔬 Analyzing market data with AI engine...")
+                        # Run analysis in background thread so listener is never blocked
+                        threading.Thread(target=process_ai_query, args=(msg_text,), daemon=True).start()
 
         except Exception:
             pass
         time.sleep(1)
 
-# --- 6. Live Price Movement Tracker ---
+# --- 7. Price Movement Tracker ---
 def check_market():
     last_reported_drop = 0
     ist = pytz.timezone("Asia/Kolkata")
     
-    send_telegram_msg("🚀 *Personal AI Quantitative Terminal Online!*\n• Connected to Private Token\n• Ask any stock or NIFTYBEES question anytime!")
+    send_telegram_msg("🚀 Personal Quantitative AI Terminal Online!\nSend any stock query or NIFTYBEES.")
 
     while True:
         try:
             now = datetime.now(ist)
             
-            # Market Hours (9:15 AM - 3:30 PM, Monday-Friday)
             if now.weekday() < 5 and (now.hour > 9 or (now.hour == 9 and now.minute >= 15)) and (now.hour < 15 or (now.hour == 15 and now.minute <= 30)):
                 etf = yf.Ticker("NIFTYBEES.NS")
                 df_1m = etf.history(period="1d", interval="1m")
@@ -307,13 +301,11 @@ def check_market():
                         pos_msg = f"Holding {state['qty']} @ ₹{e:.2f} | P&L: ₹{pnl:+.2f}"
 
                     send_telegram_msg(
-                        f"{icon} *PRICE MOVEMENT TICK*\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"💰 Current Price: *₹{curr_price:.2f}*\n"
-                        f"🔄 Shift: {direction} from ₹{last_price:.2f} ({diff:+.2f})\n"
-                        f"📊 15m RSI: *{rsi_15m:.1f}* | VWAP: *₹{vwap_val:.2f}*\n"
-                        f"💼 Position: {pos_msg}\n"
-                        f"━━━━━━━━━━━━━━━━━━━"
+                        f"{icon} PRICE MOVEMENT\n"
+                        f"NIFTYBEES: ₹{curr_price:.2f}\n"
+                        f"Shift: {direction} from ₹{last_price:.2f} ({diff:+.2f})\n"
+                        f"15m RSI: {rsi_15m:.1f} | VWAP: ₹{vwap_val:.2f}\n"
+                        f"Position: {pos_msg}"
                     )
                     state["last_alerted_price"] = curr_price
                     save_state(state)
@@ -329,12 +321,11 @@ def check_market():
                         exit_kb = {"inline_keyboard": [[{"text": "🏁 Book Full Profit", "callback_data": "exit_trade"}]]}
                         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": CHAT_ID,
-                            "text": f"🎉 *TARGET REACHED (+2.5%)*\nSell: ₹{curr_price:.2f} | Net Profit: *₹{net_pnl:+.2f}*",
-                            "parse_mode": "Markdown",
+                            "text": f"🎉 TARGET REACHED (+2.5%)\nSell: ₹{curr_price:.2f} | Net: ₹{net_pnl:+.2f}",
                             "reply_markup": json.dumps(exit_kb)
                         })
 
-                # Tranche Dip Signals
+                # Tranche Signals
                 should_alert = False
                 target_tranche = 1
                 alloc_text = "Deploy 20% Capital (Tranche 1)"
@@ -356,11 +347,10 @@ def check_market():
                     last_reported_drop = int(drop_pct)
                     img = generate_chart(df_15m)
                     caption = (
-                        f"🚨 *NIFTYBEES DIP SIGNAL*\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"💰 *Price:* ₹{curr_price:.2f} (-{drop_pct:.2f}% from High)\n"
-                        f"📊 *VWAP:* ₹{vwap_val:.2f} | *RSI:* {rsi_15m:.1f}\n"
-                        f"👉 *Plan:* {alloc_text}"
+                        f"🚨 NIFTYBEES DIP SIGNAL\n"
+                        f"Price: ₹{curr_price:.2f} (-{drop_pct:.2f}% from High)\n"
+                        f"VWAP: ₹{vwap_val:.2f} | RSI: {rsi_15m:.1f}\n"
+                        f"Plan: {alloc_text}"
                     )
                     send_alert_with_buttons(img, caption, target_tranche)
 
