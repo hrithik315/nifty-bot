@@ -14,7 +14,7 @@ import mplfinance as mpf
 
 BOT_TOKEN = "8695074642:AAHGHqaS1q-EkoEL5tY-gv7yvj5GAaF3lJ8"
 CHAT_ID = "1152142289"
-GEMINI_API_KEY = "AQ.Ab8RN6IfIXxacY3xBmfDVNkzFvg-zDq23SWQ7LdTCHBnAnE2JA"
+GROQ_API_KEY = "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"
 
 STATE_FILE = "portfolio_state.json"
 BROKERAGE_FEE = 40.0
@@ -45,7 +45,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"AI Quantitative Terminal 24/7 Active!")
+        self.wfile.write(b"AI Quantitative Terminal 24/7 Active via Groq Engine!")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -80,7 +80,7 @@ def generate_chart(df):
     mpf.plot(df.tail(30), type='candle', style='charles', savefig=chart_path, volume=False)
     return chart_path
 
-# --- 3. Quantitative Math Engines ---
+# --- 3. Quantitative Math Calculations ---
 def calculate_vwap(df):
     try:
         typical_price = (df['High'] + df['Low'] + df['Close']) / 3
@@ -121,8 +121,8 @@ def get_heavyweights_data():
             hw_stats.append(f"{name}: N/A")
     return bull_count, " | ".join(hw_stats)
 
-# --- 4. Super-Intelligent AI Engine (Universal Auth Handler) ---
-def ask_gemini_market_analyst(user_query):
+# --- 4. High-Speed Groq AI Market Analyst ---
+def ask_groq_market_analyst(user_query):
     try:
         etf = yf.Ticker("NIFTYBEES.NS")
         df_15m = etf.history(period="5d", interval="15m")
@@ -160,12 +160,12 @@ def ask_gemini_market_analyst(user_query):
 You are a senior quantitative fund manager and high-conviction trading analyst for NIFTYBEES ETF.
 User question: "{user_query}"
 
-LIVE METRICS (NSE Tick Data):
-- NIFTYBEES Price: ₹{curr_price:.2f} (Day Range: ₹{day_low:.2f} - ₹{day_high:.2f} | Drop: -{drop_from_high:.2f}%)
+LIVE METRICS (NSE Real-Time Tick):
+- NIFTYBEES Price: ₹{curr_price:.2f} (Day Low: ₹{day_low:.2f} | High: ₹{day_high:.2f} | Drop: -{drop_from_high:.2f}%)
 - 15m VWAP: ₹{vwap_val:.2f} (Status: {'ABOVE VWAP - Strong' if curr_price >= vwap_val else 'BELOW VWAP - Weak/Discount'})
 - RSI (15m): {rsi_15m:.1f} | RSI (1h): {rsi_1h:.1f}
 - Volume Momentum: {vol_ratio:.2f}x of 20-period average
-- 61.8% Golden Fibonacci Pocket: ₹{fibs['fib_618']:.2f}
+- 61.8% Fibonacci Golden Pocket: ₹{fibs['fib_618']:.2f}
 - Institutional Heavyweights (Top 3): {bull_heavy}/3 Green ({hw_line})
 - Macro Trend: {macro_trend}
 - Portfolio: {portfolio_info}
@@ -177,35 +177,33 @@ RESPONSE FORMAT (Strictly follow this structure, professional Hindi/Hinglish):
    - Heavyweights institutional flow status.
    - Risk-to-Reward ratio estimation.
 3. ⚡ **ACTION PLAN:**
-   - Exact price levels to watch.
+   - Exact entry/exit price to watch.
    - Next Tranche level or Trailing SL level.
 
-No generic disclaimers. No emotional talk. Pure data precision under 160 words.
+No generic disclaimers. No emotional talk. Pure institutional data precision under 160 words.
 """
 
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        
-        # Dual-Authentication Adapter (Bearer Token + Header Key)
-        endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        endpoint = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GEMINI_API_KEY}",
-            "x-goog-api-key": GEMINI_API_KEY
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.2
         }
         
-        res = requests.post(endpoint, headers=headers, json=payload, timeout=15)
-        
+        res = requests.post(endpoint, headers=headers, json=payload, timeout=12)
         if res.status_code == 200:
-            return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+            data = res.json()
+            return data["choices"][0]["message"]["content"]
         else:
-            # Fallback URL format check
-            fb_url = f"{endpoint}?key={GEMINI_API_KEY}"
-            res_fb = requests.post(fb_url, json=payload, timeout=15)
-            if res_fb.status_code == 200:
-                return res_fb.json()["candidates"][0]["content"]["parts"][0]["text"]
-            return f"⚠️ Live data fetched (Price: ₹{curr_price:.2f}, RSI: {rsi_15m:.1f}), AI Auth Status Code: {res.status_code}."
+            return f"⚠️ Live data fetched (Price: ₹{curr_price:.2f}, RSI: {rsi_15m:.1f}), Groq status: {res.status_code}."
     except Exception as err:
-        return f"⚠️ Live data connection error: {err}"
+        return f"⚠️ Live data parsing issue: {err}"
 
 # --- 5. Interactive Telegram Listener ---
 def telegram_listener():
@@ -275,19 +273,19 @@ def telegram_listener():
                                 
                                 target_p = avg_price * 1.025
                                 send_telegram_msg(
-                                    f"💼 *PORTFOLIO POSITION ACTIVATED*\n"
+                                    f"💼 *PORTFOLIO POSITION RECORDED*\n"
                                     f"━━━━━━━━━━━━━━━━━━━\n"
                                     f"📦 Units: *{total_qty}*\n"
-                                    f"💰 Avg Price: *₹{avg_price:.2f}*\n"
+                                    f"💰 Avg Buy: *₹{avg_price:.2f}*\n"
                                     f"💵 Total Invested: *₹{(total_qty*avg_price):.2f}*\n"
                                     f"🎯 Target (+2.5%): *₹{target_p:.2f}*\n"
                                     f"━━━━━━━━━━━━━━━━━━━\n"
-                                    f"💡 *Tip:* Trade ke baare me AI se live advice lene ke liye direct message karein!"
+                                    f"💡 *Tip:* Ask any market question anytime!"
                                 )
                                 continue
 
                         send_telegram_msg("🧠 *Analyzing live tick data, indicators & heavyweights...*")
-                        ai_verdict = ask_gemini_market_analyst(msg_text)
+                        ai_verdict = ask_groq_market_analyst(msg_text)
                         send_telegram_msg(ai_verdict)
 
         except Exception:
@@ -398,7 +396,7 @@ def check_market():
     post_closing_date = ""
     ist = pytz.timezone("Asia/Kolkata")
     
-    send_telegram_msg("🚀 *Super-Intelligent AI Terminal Live!*\n• Multi-Timeframe Confluence Engine Active\n• Ask any question anytime on Telegram!")
+    send_telegram_msg("🚀 *Ultra-Fast AI Quantitative Terminal Online!*\n• Powered by LLaMA 3.3 70B Engine\n• Ask anything on Telegram anytime!")
 
     while True:
         try:
