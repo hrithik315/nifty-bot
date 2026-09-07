@@ -11,12 +11,12 @@ import pandas as pd
 import yfinance as yf
 import mplfinance as mpf
 
-# Production Config
+# Production Configuration
 BOT_TOKEN = "8695074642:AAF44kKVuUiD5x7SMtW5M_nygHMoTIS0H5g"
 CHAT_ID = "1152142289"
 
 STATE_FILE = "portfolio_state.json"
-BROKERAGE_FEE = 40.0  # Buy + Sell flat charges
+BROKERAGE_FEE = 40.0  # Buy (₹20) + Sell (₹20)
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -33,9 +33,12 @@ def load_state():
         "awaiting_qty": False,
         "trailing_sl": 0.0,
         "max_price_seen": 0.0,
-        "last_alerted_price": 0.0,
-        "tracked_entry_level": 0.0,
-        "last_stage_alerted": ""
+        "last_1m_candle_time": "",
+        "active_target_1": 0.0,
+        "active_target_2": 0.0,
+        "active_sl": 0.0,
+        "target_1_alerted": False,
+        "target_2_alerted": False
     }
 
 def save_state(state):
@@ -47,7 +50,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Dual-Stream Institutional Quant Terminal Active!")
+        self.wfile.write(b"1-Minute Real-Time Institutional Terminal Active!")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -82,7 +85,7 @@ def send_alert_with_buttons(img_path, caption_text, tranche_next):
 
 def generate_chart(df):
     chart_path = "chart.png"
-    mpf.plot(df.tail(30), type='candle', style='charles', savefig=chart_path, volume=False)
+    mpf.plot(df.tail(25), type='candle', style='charles', savefig=chart_path, volume=False)
     return chart_path
 
 # --- 3. Indicators ---
@@ -121,11 +124,11 @@ def detect_symbol(query):
             return sym, name
     return "NIFTYBEES.NS", "NIFTYBEES"
 
-# --- 4. Institutional Deep-Scan Research Engine ---
+# --- 4. Live Institutional Drivers Fetch ---
 def fetch_institutional_drivers():
     drivers = {}
     bull_count = 0
-    hw_list = [("HDFCBANK.NS", "HDFC Bank (~11%)"), ("RELIANCE.NS", "Reliance (~9%)"), ("ICICIBANK.NS", "ICICI Bank (~8%)")]
+    hw_list = [("HDFCBANK.NS", "HDFC Bank"), ("RELIANCE.NS", "Reliance"), ("ICICIBANK.NS", "ICICI Bank")]
     
     for sym, label in hw_list:
         try:
@@ -133,13 +136,12 @@ def fetch_institutional_drivers():
             c = float(h['Close'].iloc[-1])
             p = float(h['Close'].iloc[-2])
             chg = ((c - p) / p) * 100
-            if chg >= -0.2:  # Holding ground or green
+            if chg >= -0.20:
                 bull_count += 1
             drivers[label] = f"₹{c:.1f} ({chg:+.2f}%)"
         except Exception:
             drivers[label] = "N/A"
 
-    # India VIX (Market Fear Gauge)
     vix_val = 14.0
     vix_status = "STABLE"
     try:
@@ -148,140 +150,143 @@ def fetch_institutional_drivers():
         vix_prev = float(vix_df['Close'].iloc[-2])
         vix_chg = ((vix_val - vix_prev) / vix_prev) * 100
         if vix_val >= 16.5 or vix_chg > 5.0:
-            vix_status = "⚠️ ELEVATED / PANIC RISK"
+            vix_status = "⚠️ PANIC"
         else:
-            vix_status = "🟢 CALM / CONSOLIDATION"
+            vix_status = "🟢 STABLE"
     except Exception:
         pass
 
     return bull_count, drivers, vix_val, vix_status
 
-def calculate_trade_setup(symbol):
+# --- 5. 1-Minute Live Data Extraction ---
+def evaluate_1m_candle(symbol="NIFTYBEES.NS"):
     ticker = yf.Ticker(symbol)
     df_1m = ticker.history(period="1d", interval="1m")
     df_15m = ticker.history(period="5d", interval="15m")
     df_1h = ticker.history(period="1mo", interval="60m")
     df_daily = ticker.history(period="2mo", interval="1d")
 
-    curr_p = float(df_1m['Close'].iloc[-1])
-    day_high = float(df_15m['High'].tail(25).max())
-    day_low = float(df_1m['Low'].min())
-    vwap_val = calculate_vwap(df_15m)
-    rsi_15m = calculate_rsi(df_15m['Close'])
+    if df_1m.empty:
+        return None
 
-    prev_day_low = float(df_daily['Low'].iloc[-2]) if len(df_daily) >= 2 else day_low * 0.99
-    swing_5d_low = float(df_15m['Low'].min())
+    last_bar = df_1m.iloc[-1]
+    candle_time = str(df_1m.index[-1])
+    curr_close = float(last_bar['Close'])
+    bar_high = float(last_bar['High'])
+    bar_low = float(last_bar['Low'])
+    bar_open = float(last_bar['Open'])
 
-    high_month = float(df_1h['High'].max())
-    low_month = float(df_1h['Low'].min())
-    fib_618 = float(high_month - (0.618 * (high_month - low_month)))
+    vwap_val = calculate_vwap(df_15m) if not df_15m.empty else curr_close
+    rsi_1m = calculate_rsi(df_1m['Close']) if len(df_1m) >= 15 else 50.0
 
-    supports_below = [s for s in [prev_day_low, swing_5d_low, fib_618] if s < (curr_p - 0.25)]
-    if supports_below:
-        optimal_entry = round(max(supports_below), 2)
+    # Institutional Demand Level Below Current Market Price
+    prev_day_low = float(df_daily['Low'].iloc[-2]) if len(df_daily) >= 2 else bar_low * 0.99
+    swing_low = float(df_15m['Low'].min()) if not df_15m.empty else bar_low * 0.99
+    
+    h_1h = float(df_1h['High'].max()) if not df_1h.empty else curr_close
+    l_1h = float(df_1h['Low'].min()) if not df_1h.empty else curr_close
+    fib_618 = float(h_1h - (0.618 * (h_1h - l_1h)))
+
+    supports = [s for s in [prev_day_low, swing_low, fib_618] if s < (curr_close - 0.20)]
+    if supports:
+        optimal_entry = round(max(supports), 2)
     else:
-        optimal_entry = round(curr_p * 0.9925, 2)
+        optimal_entry = round(curr_close * 0.993, 2)
 
-    diff_to_entry = round(curr_p - optimal_entry, 2)
+    diff = round(curr_close - optimal_entry, 2)
     sl = round(optimal_entry * 0.992, 2)
     t1 = round(optimal_entry * 1.015, 2)
     t2 = round(optimal_entry * 1.025, 2)
 
+    # Shift / Fluctuated direction of the completed 1m candle
+    shift_amt = round(curr_close - bar_open, 2)
+    shift_dir = "🟢 UP" if shift_amt >= 0 else "🔴 DOWN"
+
+    # Auto-synchronize Target and SL
+    state = load_state()
+    state["active_target_1"] = t1
+    state["active_target_2"] = t2
+    state["active_sl"] = sl
+    save_state(state)
+
     return {
-        "curr_p": curr_p,
-        "day_low": day_low,
-        "day_high": day_high,
+        "candle_time": candle_time,
+        "close": curr_close,
+        "open": bar_open,
+        "high": bar_high,
+        "low": bar_low,
+        "shift_dir": shift_dir,
+        "shift_amt": shift_amt,
         "vwap": vwap_val,
-        "rsi": rsi_15m,
+        "rsi_1m": rsi_1m,
         "optimal_entry": optimal_entry,
-        "diff_to_entry": diff_to_entry,
+        "diff": diff,
         "sl": sl,
         "t1": t1,
-        "t2": t2
+        "t2": t2,
+        "df_1m": df_1m
     }
 
-# --- 5. Generate Dual Messages ---
-def generate_dual_stream(user_query):
-    target_sym, asset_name = detect_symbol(user_query)
-    try:
-        data = calculate_trade_setup(target_sym)
-        bull_count, hw_drivers, vix_val, vix_status = fetch_institutional_drivers()
+def format_1m_card(data, asset_name="NIFTYBEES"):
+    bull_count, hw_drivers, vix_val, vix_status = fetch_institutional_drivers()
+    state = load_state()
+    calc_qty = state.get("qty", 100)
+    if calc_qty == 0: calc_qty = 100
 
-        state = load_state()
-        state["tracked_entry_level"] = data["optimal_entry"]
-        state["last_stage_alerted"] = ""
-        save_state(state)
+    entry = data["optimal_entry"]
+    t1 = data["t1"]
+    t2 = data["t2"]
+    sl = data["sl"]
 
-        calc_qty = state.get("qty", 100)
-        if calc_qty == 0: calc_qty = 100
+    net_t1 = ((t1 - entry) * calc_qty) - BROKERAGE_FEE
+    net_t2 = ((t2 - entry) * calc_qty) - BROKERAGE_FEE
+    net_sl = ((sl - entry) * calc_qty) - BROKERAGE_FEE
 
-        entry = data["optimal_entry"]
-        t1 = data["t1"]
-        t2 = data["t2"]
-        sl = data["sl"]
-
-        net_t1 = ((t1 - entry) * calc_qty) - BROKERAGE_FEE
-        net_t2 = ((t2 - entry) * calc_qty) - BROKERAGE_FEE
-        net_sl = ((sl - entry) * calc_qty) - BROKERAGE_FEE
-
-        # === MESSAGE 1: Institutional Research & Drivers Audit ===
-        msg1 = (
-            f"🔬 *INSTITUTIONAL RESEARCH AUDIT: {asset_name}*\n"
+    # Live holding check
+    holding_str = ""
+    if state.get("status") == "HOLDING" and state.get("qty", 0) > 0:
+        e_price = state["entry_price"]
+        q_pos = state["qty"]
+        live_net = ((data["close"] - e_price) * q_pos) - BROKERAGE_FEE
+        holding_str = (
+            f"💼 *ACTIVE POSITION:* {q_pos} Units @ ₹{e_price:.2f}\n"
+            f"💰 In-Hand P&L: *₹{live_net:+.2f}* (Brokerage cut)\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"📊 *TOP HEAVYWEIGHTS SUPPORT ({bull_count}/3 Stabilized):*\n"
-            f"• HDFC Bank: {hw_drivers.get('HDFC Bank (~11%)', 'N/A')}\n"
-            f"• Reliance: {hw_drivers.get('Reliance (~9%)', 'N/A')}\n"
-            f"• ICICI Bank: {hw_drivers.get('ICICI Bank (~8%)', 'N/A')}\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"⚡ *MARKET VOLATILITY & RISK:*\n"
-            f"• India VIX: *{vix_val:.2f}* ({vix_status})\n"
-            f"• 15m VWAP: *₹{data['vwap']:.2f}* (Discount: {((data['curr_p']-data['vwap'])/data['vwap'])*100:+.2f}%)\n"
-            f"• 15m RSI: *{data['rsi']:.1f}*\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 *Institutional Verdict:* {'🟢 Heavyweights holding support. Reversal safe.' if bull_count >= 2 else '🔴 Heavyweights selling off. Do not catch falling knife.'}"
         )
 
-        # === MESSAGE 2: Exact Trade Execution & In-Hand Profit Ticket ===
-        is_safe_entry = (data["curr_p"] <= entry + 0.05) and (bull_count >= 2) and ("PANIC" not in vix_status)
-
-        if is_safe_entry:
-            status_tag = "🟢 **BUY CONFIRMED (INSTITUTIONAL CONFLUENCE)**"
-            call = (
-                f"✅ All parameters aligned. Heavyweights stabilised.\n\n"
-                f"👉 **EXECUTE NOW:** Buy at **₹{data['curr_p']:.2f}** (Tranche 1)\n"
-                f"🛑 **Stop-Loss:** ₹{sl:.2f}\n"
-                f"🎯 **Target 1 (+1.5%):** ₹{t1:.2f}\n"
-                f"🎯 **Target 2 (+2.5%):** ₹{t2:.2f}"
-            )
-        else:
-            status_tag = "🛑 **DO NOT BUY AT RUNNING PRICE**"
-            reason = f"Abhi ₹{data['diff_to_entry']:.2f} ka dip baaki hai" if data["curr_p"] > entry + 0.05 else "Heavyweights me selling jaari hai"
-            call = (
-                f"❌ Running price **₹{data['curr_p']:.2f}** par buy mat karein.\n"
-                f"Reason: {reason}.\n\n"
-                f"📍 **Actionable Limit Order Level:** **₹{entry:.2f}**\n"
-                f"📏 **Required Dip:** **₹{data['diff_to_entry']:.2f}** to true demand zone.\n"
-                f"💡 Terminal me **₹{entry:.2f}** par Limit Order laga kar wait karein."
-            )
-
-        msg2 = (
-            f"🎯 *TRADE EXECUTION TICKET: {asset_name}*\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 *Current Price:* ₹{data['curr_p']:.2f} | *Day Low:* ₹{data['day_low']:.2f}\n"
-            f"{status_tag}\n\n"
-            f"{call}\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"💵 *EXPECTED IN-HAND NET PROFIT ({calc_qty} Units - ₹40 Brokerage Cut):*\n"
-            f"🟢 **Target 1 (₹{t1:.2f}):** Net In-Hand: *+₹{net_t1:.2f}*\n"
-            f"🟢 **Target 2 (₹{t2:.2f}):** Net In-Hand: *+₹{net_t2:.2f}*\n"
-            f"🔴 **Stop-Loss Hit (₹{sl:.2f}):** Net In-Hand: *₹{net_sl:.2f}*\n"
-            f"━━━━━━━━━━━━━━━━━━━"
+    if data["diff"] <= 0.05:
+        status_line = "🟢 **DEMAND LEVEL HIT (EXECUTE TRANCHE 1)**"
+        call = f"👉 **BUY NOW at ₹{data['close']:.2f}** | Risk-to-Reward High"
+    else:
+        status_line = "⏳ **WAITING FOR DEMAND LEVEL (NO ENTRY AT RUNNING PRICE)**"
+        call = (
+            f"📍 **Target Buy Level:** **₹{entry:.2f}**\n"
+            f"📏 **Entry me kitne points kam hain:** **{data['diff']:.2f} Points (₹{data['diff']:.2f})** baaki.\n"
+            f"💡 **Action:** Broker terminal par **₹{entry:.2f}** par Limit Order set rakhein."
         )
 
-        return msg1, msg2
-
-    except Exception as e:
-        return f"⚠️ Audit error: {str(e)}", None
+    card = (
+        f"⚡ *1-MIN TICK UPDATE: {asset_name}*\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 *Close Price:* ₹{data['close']:.2f} ({data['shift_dir']} {data['shift_amt']:+.2f})\n"
+        f"📊 *1m Bar:* High ₹{data['high']:.2f} | Low ₹{data['low']:.2f}\n"
+        f"📐 *VWAP:* ₹{data['vwap']:.2f} | ⚡ *1m RSI:* {data['rsi_1m']:.1f}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🏛️ *HEAVYWEIGHT DRIVERS ({bull_count}/3 Stabilized):*\n"
+        f"• HDFC: {hw_drivers.get('HDFC Bank', 'N/A')} | Reliance: {hw_drivers.get('Reliance', 'N/A')}\n"
+        f"• India VIX: *{vix_val:.2f}* ({vix_status})\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"{holding_str}"
+        f"{status_line}\n\n"
+        f"{call}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💵 *NET IN-HAND P&L ({calc_qty} Units - ₹40 Brokerage Cut):*\n"
+        f"🟢 **Target 1 (+1.5% at ₹{t1:.2f}):** Net *+₹{net_t1:.2f}*\n"
+        f"🟢 **Target 2 (+2.5% at ₹{t2:.2f}):** Net *+₹{net_t2:.2f}*\n"
+        f"🔴 **Stop-Loss (₹{sl:.2f}):** Risk *₹{net_sl:.2f}*\n"
+        f"━━━━━━━━━━━━━━━━━━━"
+    )
+    return card
 
 # --- 6. Interactive Telegram Listener ---
 def telegram_listener():
@@ -313,13 +318,13 @@ def telegram_listener():
                             state["awaiting_qty"] = True
                             save_state(state)
 
-                            send_telegram_msg(f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n👉 Quantity reply karein (e.g. `50`).")
+                            send_telegram_msg(f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n👉 Reply me Quantity bhejein (e.g. `50`).")
                         elif data == "skip_entry":
                             state["status"] = "WAITING_STRONG"
                             save_state(state)
-                            send_telegram_msg("👌 *Entry Skipped.* Bot waiting for next optimal level.")
+                            send_telegram_msg("👌 *Entry Skipped.* Scanner waiting for next optimal level.")
                         elif data == "exit_trade":
-                            state = {"tranche_level": 0, "entry_price": 0.0, "qty": 0, "status": "IDLE", "awaiting_qty": False, "trailing_sl": 0.0, "max_price_seen": 0.0, "last_alerted_price": 0.0, "tracked_entry_level": 0.0, "last_stage_alerted": ""}
+                            state = {"tranche_level": 0, "entry_price": 0.0, "qty": 0, "status": "IDLE", "awaiting_qty": False, "trailing_sl": 0.0, "max_price_seen": 0.0, "last_1m_candle_time": "", "active_target_1": 0.0, "active_target_2": 0.0, "active_sl": 0.0, "target_1_alerted": False, "target_2_alerted": False}
                             save_state(state)
                             send_telegram_msg("🏁 *Position Closed.* Capital 100% Free.")
 
@@ -343,120 +348,122 @@ def telegram_listener():
                                 state["max_price_seen"] = avg_price
                                 state["status"] = "HOLDING"
                                 state["awaiting_qty"] = False
+                                state["active_target_1"] = round(avg_price * 1.015, 2)
+                                state["active_target_2"] = round(avg_price * 1.025, 2)
+                                state["active_sl"] = round(avg_price * 0.992, 2)
+                                state["target_1_alerted"] = False
+                                state["target_2_alerted"] = False
                                 save_state(state)
 
-                                target_p = avg_price * 1.025
-                                net_target_pnl = ((target_p - avg_price) * total_qty) - BROKERAGE_FEE
+                                net_target_pnl = ((state["active_target_2"] - avg_price) * total_qty) - BROKERAGE_FEE
                                 send_telegram_msg(
                                     f"💼 *PORTFOLIO RECORDED*\n"
                                     f"━━━━━━━━━━━━━━━━━━━\n"
                                     f"📦 Units: *{total_qty}*\n"
                                     f"💰 Avg Buy: *₹{avg_price:.2f}*\n"
-                                    f"🎯 Target (+2.5%): *₹{target_p:.2f}*\n"
-                                    f"💵 Target Hit par In-Hand: *+₹{net_target_pnl:.2f}*\n"
+                                    f"🎯 Target 1 (+1.5%): *₹{state['active_target_1']:.2f}*\n"
+                                    f"🎯 Target 2 (+2.5%): *₹{state['active_target_2']:.2f}*\n"
+                                    f"💵 Target 2 Hit par In-Hand: *+₹{net_target_pnl:.2f}*\n"
                                     f"━━━━━━━━━━━━━━━━━━━"
                                 )
                                 continue
 
-                        # Send Dual Stream Messages
-                        m1, m2 = generate_dual_stream(msg_text)
-                        send_telegram_msg(m1)
-                        if m2:
-                            time.sleep(0.5)
-                            send_telegram_msg(m2)
+                        sym, asset = detect_symbol(msg_text)
+                        m_data = evaluate_1m_candle(sym)
+                        if m_data:
+                            report_text = format_1m_card(m_data, asset)
+                            send_telegram_msg(report_text)
 
         except Exception:
             pass
         time.sleep(1)
 
-# --- 7. Live Proximity & Autonomous Trade Execution Radar ---
+# --- 7. 1-Minute Live Background Engine ---
 def check_market():
     ist = pytz.timezone("Asia/Kolkata")
-    send_telegram_msg("🚀 *Dual-Stream Institutional Terminal Live!*\n• Stream 1: Heavyweights + India VIX Audit\n• Stream 2: Exact Execution Ticket & In-Hand P&L")
+    send_telegram_msg("🚀 *1-Minute Institutional Engine Online!*\n• Har 1 minute par full detail fluctuation alert live\n• Real-time points countdown & tick targets active.")
 
     while True:
         try:
             now = datetime.now(ist)
 
-            # Market Hours: 9:15 AM - 3:30 PM (Mon-Fri)
+            # Market Hours: 9:15 AM to 3:30 PM (Mon-Fri)
             if now.weekday() < 5 and (now.hour > 9 or (now.hour == 9 and now.minute >= 15)) and (now.hour < 15 or (now.hour == 15 and now.minute <= 30)):
-                etf = yf.Ticker("NIFTYBEES.NS")
-                df_1m = etf.history(period="1d", interval="1m")
-                df_15m = etf.history(period="5d", interval="15m")
-
-                curr_p = float(df_1m['Close'].iloc[-1])
-                state = load_state()
-                target_level = state.get("tracked_entry_level", 0.0)
-
-                if target_level == 0.0:
-                    data = calculate_trade_setup("NIFTYBEES.NS")
-                    target_level = data["optimal_entry"]
-                    state["tracked_entry_level"] = target_level
-                    save_state(state)
-
-                diff = round(curr_p - target_level, 2)
-                last_stage = state.get("last_stage_alerted", "")
-
-                # Proximity Alerts
-                if 0.30 < diff <= 0.60 and last_stage != "STAGE_50":
-                    state["last_stage_alerted"] = "STAGE_50"
-                    save_state(state)
-                    send_telegram_msg(
-                        f"⚠️ *SUPPORT APPROACHING*\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"💰 Current Price: *₹{curr_p:.2f}*\n"
-                        f"🎯 Target Support: *₹{target_level:.2f}*\n"
-                        f"📏 Abhi *₹{diff:.2f}* ka dip baaki hai. Terminal ready rakhein."
-                    )
-                elif 0.05 < diff <= 0.30 and last_stage != "STAGE_20":
-                    state["last_stage_alerted"] = "STAGE_20"
-                    save_state(state)
-                    send_telegram_msg(
-                        f"🚨 *HIGH ALERT: VERY CLOSE TO DEMAND*\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"💰 Current Price: *₹{curr_p:.2f}*\n"
-                        f"🎯 Target Support: *₹{target_level:.2f}*\n"
-                        f"📏 Sirf *₹{diff:.2f}* bacha hai! Heavyweights audit run karein."
-                    )
-                elif diff <= 0.05 and last_stage != "TRIGGERED":
-                    state["last_stage_alerted"] = "TRIGGERED"
-                    save_state(state)
-                    img = generate_chart(df_15m)
+                m_data = evaluate_1m_candle("NIFTYBEES.NS")
+                
+                if m_data:
+                    state = load_state()
+                    last_time = state.get("last_1m_candle_time", "")
                     
-                    calc_qty = state.get("qty", 100)
-                    if calc_qty == 0: calc_qty = 100
-                    exp_net = (((curr_p * 1.025) - curr_p) * calc_qty) - BROKERAGE_FEE
-                    
-                    caption = (
-                        f"🔥 *EXECUTE ORDER NOW (DEMAND HIT)!*\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"💰 Entry Price: *₹{curr_p:.2f}*\n"
-                        f"🎯 Target (+2.5%): *₹{(curr_p * 1.025):.2f}*\n"
-                        f"💵 Net In-Hand: *+₹{exp_net:.2f}* (After ₹40 Brokerage)\n"
-                        f"🛑 Stop-Loss: *₹{(target_level * 0.992):.2f}*\n"
-                        f"👉 Action: Buy Tranche 1"
-                    )
-                    send_alert_with_buttons(img, caption, 1)
+                    # 1. Target & SL Real-Time Tick Detection (High/Low wick)
+                    high_tick = m_data["high"]
+                    low_tick = m_data["low"]
+                    t1 = state.get("active_target_1", 0.0)
+                    t2 = state.get("active_target_2", 0.0)
+                    sl = state.get("active_sl", 0.0)
+                    qty = state.get("qty", 100)
+                    if qty == 0: qty = 100
 
-                # Profit Booking Notification (+2.5%)
-                if state.get("status") == "HOLDING" and state.get("qty", 0) > 0:
-                    entry_p = state["entry_price"]
-                    qty = state["qty"]
-                    net_pnl = ((curr_p - entry_p) * qty) - BROKERAGE_FEE
-                    net_return_pct = (net_pnl / (entry_p * qty)) * 100
+                    # Target 1 Hit Alert
+                    if t1 > 0 and high_tick >= t1 and not state.get("target_1_alerted", False):
+                        state["target_1_alerted"] = True
+                        save_state(state)
+                        net_pnl_1 = ((t1 - (state.get('entry_price') or (t1/1.015))) * qty) - BROKERAGE_FEE
+                        send_telegram_msg(
+                            f"🎉 *TARGET 1 HIT (+1.5%)!*\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"📈 High Tick: *₹{high_tick:.2f}* (Target: ₹{t1:.2f})\n"
+                            f"💰 In-Hand Net Profit: *+₹{net_pnl_1:.2f}* (Brokerage Deducted)\n"
+                            f"👉 Half Quantity book karein, baaki Cost par hold karein."
+                        )
 
-                    if net_return_pct >= 2.5:
+                    # Target 2 Hit Alert
+                    if t2 > 0 and high_tick >= t2 and not state.get("target_2_alerted", False):
+                        state["target_2_alerted"] = True
+                        save_state(state)
+                        net_pnl_2 = ((t2 - (state.get('entry_price') or (t2/1.025))) * qty) - BROKERAGE_FEE
                         exit_kb = {"inline_keyboard": [[{"text": "🏁 Book Full Profit", "callback_data": "exit_trade"}]]}
                         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": CHAT_ID,
-                            "text": f"🎉 *TARGET HIT (+2.5%)*\nSell Price: ₹{curr_p:.2f}\nNet Realized Profit: *₹{net_pnl:+.2f}* (Brokerage Deducted)",
+                            "text": (
+                                f"🚀 *TARGET 2 HIT (+2.5%)!*\n"
+                                f"━━━━━━━━━━━━━━━━━━━\n"
+                                f"📈 High Tick: *₹{high_tick:.2f}* (Target: ₹{t2:.2f})\n"
+                                f"💵 Net Realized Profit: *+₹{net_pnl_2:.2f}*\n"
+                                f"🏁 Full Profit Book karein!"
+                            ),
                             "parse_mode": "Markdown",
                             "reply_markup": json.dumps(exit_kb)
                         })
 
-            time.sleep(20)
+                    # Stop-Loss Hit Alert
+                    if sl > 0 and low_tick <= sl and state.get("status") == "HOLDING":
+                        loss_amt = ((sl - state.get('entry_price', sl)) * qty) - BROKERAGE_FEE
+                        send_telegram_msg(
+                            f"🛑 *STOP-LOSS HIT ALERT*\n"
+                            f"📉 Low Tick: *₹{low_tick:.2f}* (SL: ₹{sl:.2f})\n"
+                            f"🔴 Position Closed (Loss: ₹{loss_amt:.2f})"
+                        )
+                        state["status"] = "IDLE"
+                        save_state(state)
+
+                    # 2. Every 1-Minute Candle Close Fluctuation Update
+                    if m_data["candle_time"] != last_time:
+                        state["last_1m_candle_time"] = m_data["candle_time"]
+                        save_state(state)
+
+                        card_text = format_1m_card(m_data, "NIFTYBEES")
+
+                        # If demand zone triggered, send chart with Buy buttons
+                        if m_data["diff"] <= 0.05:
+                            img = generate_chart(m_data["df_1m"])
+                            send_alert_with_buttons(img, card_text, 1)
+                        else:
+                            send_telegram_msg(card_text)
+
+            time.sleep(10)  # High-speed 10-second tick scan
         except Exception:
-            time.sleep(15)
+            time.sleep(10)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
