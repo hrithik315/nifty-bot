@@ -14,9 +14,10 @@ import mplfinance as mpf
 
 BOT_TOKEN = "8695074642:AAHGHqaS1q-EkoEL5tY-gv7yvj5GAaF3lJ8"
 CHAT_ID = "1152142289"
+GEMINI_API_KEY = "AQ.Ab8RN6J3F7_5sjgDnpk8afdb5mexzolX_DvnnsKB6bxDoktVZA"
 
 STATE_FILE = "portfolio_state.json"
-BROKERAGE_FEE = 40.0  # Buy + Sell flat brokerage
+BROKERAGE_FEE = 40.0
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -39,12 +40,12 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
 
-# --- 1. Render Keep-Alive 24/7 Web Server ---
+# --- 1. Keep-Alive 24/7 Web Server ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"AI Quantitative Engine Active 24/7!")
+        self.wfile.write(b"AI Quantitative Terminal 24/7 Active!")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -79,7 +80,7 @@ def generate_chart(df):
     mpf.plot(df.tail(30), type='candle', style='charles', savefig=chart_path, volume=False)
     return chart_path
 
-# --- 3. Mathematical & Quantitative Analytics ---
+# --- 3. Quantitative Math Engines ---
 def calculate_vwap(df):
     try:
         typical_price = (df['High'] + df['Low'] + df['Close']) / 3
@@ -104,10 +105,10 @@ def calculate_fibonacci(high, low):
         "fib_618": high - 0.618 * diff
     }
 
-def check_heavyweights():
+def get_heavyweights_data():
     bull_count = 0
     hw_stats = []
-    for sym, name in [("RELIANCE.NS", "RELIANCE"), ("HDFCBANK.NS", "HDFCBANK"), ("ICICIBANK.NS", "ICICIBANK")]:
+    for sym, name in [("RELIANCE.NS", "Reliance"), ("HDFCBANK.NS", "HDFC Bank"), ("ICICIBANK.NS", "ICICI Bank")]:
         try:
             h = yf.Ticker(sym).history(period="2d")
             c = h['Close'].iloc[-1]
@@ -115,12 +116,85 @@ def check_heavyweights():
             chg = ((c - p) / p) * 100
             if chg > 0:
                 bull_count += 1
-            hw_stats.append(f"{name}: {chg:+.1f}%")
+            hw_stats.append(f"{name}: {chg:+.2f}%")
         except Exception:
             hw_stats.append(f"{name}: N/A")
     return bull_count, " | ".join(hw_stats)
 
-# --- 4. Interactive Listener (Input & Tranches) ---
+# --- 4. Super-Intelligent AI Engine ---
+def ask_gemini_market_analyst(user_query):
+    try:
+        etf = yf.Ticker("NIFTYBEES.NS")
+        df_15m = etf.history(period="5d", interval="15m")
+        df_1h = etf.history(period="1mo", interval="60m")
+        df_daily = etf.history(period="3mo", interval="1d")
+        
+        curr_price = df_15m['Close'].iloc[-1]
+        day_high = df_15m['High'].max()
+        day_low = df_15m['Low'].min()
+        drop_from_high = ((day_high - curr_price) / day_high) * 100
+        
+        vwap_val = calculate_vwap(df_15m)
+        rsi_15m = calculate_rsi(df_15m['Close'])
+        rsi_1h = calculate_rsi(df_1h['Close'])
+        fibs = calculate_fibonacci(df_1h['High'].max(), df_1h['Low'].min())
+        bull_heavy, hw_line = get_heavyweights_data()
+        
+        vol_now = df_15m['Volume'].iloc[-1]
+        vol_avg = df_15m['Volume'].tail(20).mean()
+        vol_ratio = vol_now / vol_avg if vol_avg > 0 else 1.0
+        
+        sma_50_daily = df_daily['Close'].tail(50).mean()
+        macro_trend = "BULLISH (Above Daily 50 SMA)" if curr_price >= sma_50_daily else "BEARISH (Below Daily 50 SMA)"
+        
+        state = load_state()
+        portfolio_info = "Status: Cash 100% Free (No open positions)"
+        if state.get("status") == "HOLDING" and state.get("qty", 0) > 0:
+            e = state["entry_price"]
+            q = state["qty"]
+            net_pnl = ((curr_price - e) * q) - BROKERAGE_FEE
+            ret = (net_pnl / (e * q)) * 100
+            portfolio_info = f"Holding {q} units | Avg Buy: ₹{e:.2f} | Net P&L: ₹{net_pnl:+.2f} ({ret:+.2f}%) | Trailing SL: ₹{state.get('trailing_sl', 0):.2f}"
+
+        prompt = f"""
+You are a senior quantitative fund manager and high-conviction trading analyst for NIFTYBEES ETF.
+User question: "{user_query}"
+
+LIVE METRICS (NSE Tick Data):
+- NIFTYBEES Price: ₹{curr_price:.2f} (Day Range: ₹{day_low:.2f} - ₹{day_high:.2f} | Drop: -{drop_from_high:.2f}%)
+- 15m VWAP: ₹{vwap_val:.2f} (Status: {'ABOVE VWAP - Strong' if curr_price >= vwap_val else 'BELOW VWAP - Weak/Discount'})
+- RSI (15m): {rsi_15m:.1f} | RSI (1h): {rsi_1h:.1f}
+- Volume Momentum: {vol_ratio:.2f}x of 20-period average
+- 61.8% Golden Fibonacci Pocket: ₹{fibs['fib_618']:.2f}
+- Institutional Heavyweights (Top 3): {bull_heavy}/3 Green ({hw_line})
+- Macro Trend: {macro_trend}
+- Portfolio: {portfolio_info}
+
+RESPONSE FORMAT (Strictly follow this structure, professional Hinglish):
+1. 🎯 **VERDICT:** (State one: BUY NOW / ACCUMULATE / STRICT HOLD / EXIT & BOOK PROFIT / WAIT FOR CONFIRMATION)
+2. 🔬 **TECHNICAL REASONING:**
+   - Mention VWAP + RSI correlation.
+   - Heavyweights institutional flow status.
+   - Risk-to-Reward ratio estimation.
+3. ⚡ **ACTION PLAN:**
+   - Exact entry/exit price to watch.
+   - Next Tranche level or Trailing SL level.
+
+No generic disclaimers. No emotional talk. Pure data precision under 160 words.
+"""
+
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        res = requests.post(endpoint, json=payload, timeout=15)
+        
+        if res.status_code == 200:
+            return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return f"⚠️ Live data fetched (Price: ₹{curr_price:.2f}, RSI: {rsi_15m:.1f}), but AI analysis server returned code {res.status_code}."
+    except Exception as err:
+        return f"⚠️ Live data connection error: {err}"
+
+# --- 5. Interactive Telegram Listener ---
 def telegram_listener():
     offset = 0
     while True:
@@ -152,16 +226,16 @@ def telegram_listener():
                             
                             send_telegram_msg(
                                 f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n"
-                                f"👉 Send your exact quantity (e.g., `/qty 25` or `25`)."
+                                f"👉 Reply me apni Quantity bhejein (e.g., `/qty 20` ya direct `20`)."
                             )
                         elif data == "skip_entry":
                             state["status"] = "WAITING_STRONG"
                             save_state(state)
-                            send_telegram_msg("👌 *Entry Skipped.* Quantitative scanner will wait for high-confluence confirmation.")
+                            send_telegram_msg("👌 *Entry Skipped.* Quantitative scanner waiting for higher confluence.")
                         elif data == "exit_trade":
                             state = {"tranche_level": 0, "entry_price": 0.0, "qty": 0, "status": "IDLE", "awaiting_qty": False, "trailing_sl": 0.0, "max_price_seen": 0.0}
                             save_state(state)
-                            send_telegram_msg("🏁 *Position Closed.* Portfolio reset. Cash is 100% idle.")
+                            send_telegram_msg("🏁 *Position Closed.* Portfolio reset to 100% Cash.")
 
                     elif "message" in update and "text" in update["message"]:
                         msg_text = update["message"]["text"].strip()
@@ -190,18 +264,24 @@ def telegram_listener():
                                 send_telegram_msg(
                                     f"💼 *PORTFOLIO POSITION ACTIVATED*\n"
                                     f"━━━━━━━━━━━━━━━━━━━\n"
-                                    f"📦 Position: *{total_qty} units*\n"
-                                    f"💰 Weighted Average: *₹{avg_price:.2f}*\n"
-                                    f"💵 Capital Deployed: *₹{(total_qty*avg_price):.2f}*\n"
-                                    f"🎯 Mathematical Target (+2.5%): *₹{target_p:.2f}*\n"
-                                    f"🤖 Quantitative Health Monitor: *LIVE*\n"
-                                    f"━━━━━━━━━━━━━━━━━━━"
+                                    f"📦 Units: *{total_qty}*\n"
+                                    f"💰 Avg Price: *₹{avg_price:.2f}*\n"
+                                    f"💵 Total Invested: *₹{(total_qty*avg_price):.2f}*\n"
+                                    f"🎯 Target (+2.5%): *₹{target_p:.2f}*\n"
+                                    f"━━━━━━━━━━━━━━━━━━━\n"
+                                    f"💡 *Tip:* Trade ke baare me AI se live advice lene ke liye direct message karein!"
                                 )
+                                continue
+
+                        send_telegram_msg("🧠 *Analyzing live tick data, indicators & heavyweights...*")
+                        ai_verdict = ask_gemini_market_analyst(msg_text)
+                        send_telegram_msg(ai_verdict)
+
         except Exception:
             pass
         time.sleep(2)
 
-# --- 5. Real-Time News Scanner ---
+# --- 6. Real-Time News Scanner ---
 def scan_market_news():
     seen = set()
     feed_url = "https://news.google.com/rss/search?q=NIFTY+OR+NIFTYBEES+OR+%22Indian+Stock+Market%22+when:1h&hl=en-IN&gl=IN&ceid=IN:en"
@@ -232,14 +312,14 @@ def scan_market_news():
                         pub_time = pub_elem.text.strip() if pub_elem is not None else "Just Now"
                         if link not in seen:
                             seen.add(link)
-                            send_telegram_msg(f"⚡ *BREAKING NEWS*\n━━━━━━━━━━━━━━━━━━━\n📰 {title}\n🕒 `{pub_time}`\n🔗 [Read Full Story]({link})")
+                            send_telegram_msg(f"⚡ *BREAKING NEWS*\n━━━━━━━━━━━━━━━━━━━\n📰 {title}\n🕒 `{pub_time}`\n🔗 [Read Story]({link})")
             if len(seen) > 500:
                 seen = set(list(seen)[-200:])
         except Exception:
             pass
         time.sleep(30)
 
-# --- 6. Pre & Post Market Automated Reports ---
+# --- 7. Automated Pre & Post Market Reports ---
 def send_pre_market_briefing():
     try:
         sp500 = yf.Ticker("^GSPC").history(period="2d")
@@ -298,15 +378,14 @@ def send_closing_summary():
     except Exception as e:
         print(f"Closing summary error: {e}")
 
-# --- 7. Core AI Quantitative Engine ---
+# --- 8. Core Market Scanner & Trailing SL Engine ---
 def check_market():
     last_reported_drop = 0
-    last_health_check_time = 0
     pre_briefing_date = ""
     post_closing_date = ""
     ist = pytz.timezone("Asia/Kolkata")
     
-    send_telegram_msg("🚀 *AI Quantitative Intelligence Terminal Live!*\n• Evidence-Based Reversal / Runner Detection\n• Zero Predictions, 100% Mathematical Confirmation Active!")
+    send_telegram_msg("🚀 *Super-Intelligent AI Terminal Live!*\n• Multi-Timeframe Confluence Engine Active\n• Ask any question anytime on Telegram!")
 
     while True:
         try:
@@ -323,8 +402,6 @@ def check_market():
 
             if now.weekday() < 5 and (now.hour > 9 or (now.hour == 9 and now.minute >= 15)) and (now.hour < 15 or (now.hour == 15 and now.minute <= 30)):
                 etf = yf.Ticker("NIFTYBEES.NS")
-                idx = yf.Ticker("^NSEI")
-                
                 df_15m = etf.history(period="5d", interval="15m")
                 df_1h = etf.history(period="1mo", interval="60m")
                 
@@ -334,16 +411,11 @@ def check_market():
                 vwap_val = calculate_vwap(df_15m)
                 rsi_15m = calculate_rsi(df_15m['Close'])
                 fibs = calculate_fibonacci(df_1h['High'].max(), df_1h['Low'].min())
+                bull_heavy, hw_line = get_heavyweights_data()
 
-                # Volume comparison (Current 15m volume vs 20-period moving average)
-                current_vol = df_15m['Volume'].iloc[-1]
-                avg_vol = df_15m['Volume'].tail(20).mean()
-                vol_ratio = current_vol / avg_vol if avg_vol > 0 else 1.0
-
-                bull_heavy, hw_line = check_heavyweights()
                 state = load_state()
 
-                # --- 1. TRADE HEALTH & RUNNER/EXHAUSTION EVALUATION ---
+                # Trailing SL & Targets
                 if state.get("status") == "HOLDING" and state.get("qty", 0) > 0:
                     entry_p = state["entry_price"]
                     qty = state["qty"]
@@ -356,76 +428,35 @@ def check_market():
                         state["max_price_seen"] = curr_price
                         save_state(state)
 
-                    # Dynamic Trailing SL
                     if net_return_pct >= 1.5 and state.get("trailing_sl", 0.0) < entry_p:
                         state["trailing_sl"] = entry_p
                         save_state(state)
-                        send_telegram_msg(f"🛡️ *DATA UPDATE: STOP-LOSS SECURED AT COST (₹{entry_p:.2f})*\nPosition is completely risk-free.")
+                        send_telegram_msg(f"🛡️ *TRAILING SL LOCKED AT COST (₹{entry_p:.2f})*")
 
                     if net_return_pct >= 2.0 and state.get("trailing_sl", 0.0) < (entry_p * 1.01):
                         state["trailing_sl"] = entry_p * 1.01
                         save_state(state)
-                        send_telegram_msg(f"🔒 *DATA UPDATE: +1.0% PROFIT LOCKED AT ₹{(entry_p * 1.01):.2f}*")
+                        send_telegram_msg(f"🔒 *+1.0% PROFIT LOCKED AT ₹{(entry_p * 1.01):.2f}*")
 
-                    # Exit Trigger A: Trailing SL Hit
                     if state.get("trailing_sl", 0.0) > 0 and curr_price <= state["trailing_sl"]:
                         exit_kb = {"inline_keyboard": [[{"text": "🏁 Acknowledge Exit", "callback_data": "exit_trade"}]]}
                         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": CHAT_ID,
-                            "text": f"🛑 *TRAILING SL EXECUTED*\n━━━━━━━━━━━━━━━━━━━\nExit Price: ₹{curr_price:.2f}\nNet Realized Profit: *₹{net_pnl:+.2f}*\nBrokerage: -₹40.00",
+                            "text": f"🛑 *TRAILING SL HIT*\nExit: ₹{curr_price:.2f} | Net P&L: *₹{net_pnl:+.2f}*",
                             "parse_mode": "Markdown",
                             "reply_markup": json.dumps(exit_kb)
                         })
 
-                    # Exit Trigger B: Full Target (+2.5%)
                     if net_return_pct >= 2.5:
                         exit_kb = {"inline_keyboard": [[{"text": "🏁 Book Full Profit", "callback_data": "exit_trade"}]]}
                         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": CHAT_ID,
-                            "text": f"🎉 *QUANTITATIVE TARGET HIT (+2.5%)*\n━━━━━━━━━━━━━━━━━━━\nPosition: {qty} units\nNet In-Hand Profit: *₹{net_pnl:+.2f}*\nRecommended: Full profit exit!",
+                            "text": f"🎉 *TARGET HIT (+2.5%)*\nSell: ₹{curr_price:.2f} | Net Realized: *₹{net_pnl:+.2f}*",
                             "parse_mode": "Markdown",
                             "reply_markup": json.dumps(exit_kb)
                         })
 
-                    # Evidence-Based Health Diagnostic Alert (Har 30 minute ya significant move par)
-                    if time.time() - last_health_check_time > 1800 and net_return_pct > 0.8:
-                        last_health_check_time = time.time()
-                        
-                        # Score-based verdict
-                        fuel_score = 0
-                        if curr_price >= vwap_val: fuel_score += 1
-                        if bull_heavy >= 2: fuel_score += 1
-                        if vol_ratio >= 1.0: fuel_score += 1
-                        if rsi_15m <= 65: fuel_score += 1
-
-                        if fuel_score >= 3:
-                            decision = "🟢 HOLD & RIDE (Institutional Fuel Active)"
-                            plan = "Keep holding. Mathematical momentum intact."
-                        elif fuel_score == 2:
-                            decision = "🟡 INDECISIVE (Momentum Neutral)"
-                            plan = "Tighten trailing stop-loss. Do not add quantity."
-                        else:
-                            decision = "🔴 EXHAUSTION DETECTED (Reversal Warning)"
-                            plan = "Lock in profits now. Buyers are failing across heavyweights."
-
-                        diagnostic_msg = (
-                            f"🔬 *QUANTITATIVE TRADE HEALTH CHECK*\n"
-                            f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"🚦 *Verdict:* {decision}\n"
-                            f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"💰 Current P&L: *₹{net_pnl:+.2f} ({net_return_pct:+.2f}%)*\n\n"
-                            f"📊 *Mathematical Verification:*\n"
-                            f"• VWAP Test: {'🟢 Above (₹' + f'{vwap_val:.2f})' if curr_price >= vwap_val else '🔴 Below (₹' + f'{vwap_val:.2f})'}\n"
-                            f"• Institutional Heavyweights: {bull_heavy}/3 Green\n"
-                            f"  `{hw_line}`\n"
-                            f"• Relative Volume: {vol_ratio:.2f}x of 20-period average\n"
-                            f"• RSI (15m): {rsi_15m:.1f}\n"
-                            f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"💡 *Action:* {plan}"
-                        )
-                        send_telegram_msg(diagnostic_msg)
-
-                # --- 2. MULTI-FACTOR ENTRY CONFLUENCE CHECK ---
+                # Confluence Dip Alerts
                 should_alert = False
                 target_tranche = 1
                 alloc_text = "Deploy 20% Capital"
@@ -434,12 +465,12 @@ def check_market():
                     if drop_pct >= 1.0 and drop_pct >= last_reported_drop + 1.0:
                         should_alert = True
                         target_tranche = 1
-                        alloc_text = "Deploy 20% Capital (Tranche 1 Setup)"
+                        alloc_text = "Deploy 20% Capital (Tranche 1)"
                 elif state.get("status") == "WAITING_STRONG":
                     if (rsi_15m < 32 or curr_price <= fibs['fib_618'] or drop_pct >= 2.5) and (drop_pct >= last_reported_drop + 1.0):
                         should_alert = True
                         target_tranche = 1
-                        alloc_text = "High-Confluence Reversal Zone - Deploy 25% Capital"
+                        alloc_text = "High Confluence Reversal - Deploy 25% Capital"
                 elif state.get("status") == "HOLDING":
                     curr_tranche = state.get("tranche_level", 1)
                     entry_p = state.get("entry_price", curr_price)
@@ -447,11 +478,11 @@ def check_market():
                     if curr_tranche == 1 and fall >= 1.5 and (drop_pct >= last_reported_drop + 1.0):
                         should_alert = True
                         target_tranche = 2
-                        alloc_text = f"Averaging: Deploy 30% Capital (-{fall:.1f}% from entry)"
+                        alloc_text = f"Averaging Tranche 2 (-{fall:.1f}% from entry)"
                     elif curr_tranche == 2 and fall >= 3.0 and (drop_pct >= last_reported_drop + 1.0):
                         should_alert = True
                         target_tranche = 3
-                        alloc_text = "Deep Dip: Deploy Remaining 50% Capital"
+                        alloc_text = "Final Tranche 3 (Deploy Remaining 50%)"
 
                 if should_alert:
                     last_reported_drop = int(drop_pct)
@@ -464,16 +495,16 @@ def check_market():
                         pnl_sec = f"\n💼 *LIVE POSITION:* {state['qty']} units | {badge} Net P&L: *₹{npnl:+.2f}*\n"
 
                     caption = (
-                        f"🚨 *NIFTYBEES CONFLUENCE ENTRY*\n"
+                        f"🚨 *NIFTYBEES CONFLUENCE DIP*\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
                         f"💰 *Price:* ₹{curr_price:.2f} (-{drop_pct:.2f}% from High)\n"
                         f"📊 *VWAP:* ₹{vwap_val:.2f} | *RSI:* {rsi_15m:.1f}\n"
-                        f"📐 *61.8% Golden Fibo:* ₹{fibs['fib_618']:.2f}\n"
+                        f"📐 *61.8% Fibo:* ₹{fibs['fib_618']:.2f}\n"
                         f"🏛️ *Heavyweights:* {bull_heavy}/3 Green\n"
                         f"{pnl_sec}"
                         f"━━━━━━━━━━━━━━━━━━━\n"
                         f"👉 *Action:* {alloc_text}\n"
-                        f"Record your execution below:"
+                        f"Record execution below:"
                     )
                     send_alert_with_buttons(img, caption, target_tranche)
 
