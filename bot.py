@@ -44,14 +44,14 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"NIFTYBEES Instant Quant Terminal Active!")
+        self.wfile.write(b"Multi-Timeframe Execution Terminal Active!")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
-# --- 2. Reliable Telegram Messenger ---
+# --- 2. Telegram Messengers ---
 def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": str(text), "parse_mode": "Markdown", "disable_web_page_preview": True}
@@ -74,6 +74,7 @@ def send_alert_with_buttons(img_path, caption_text, tranche_next):
         requests.post(url, data={
             'chat_id': CHAT_ID,
             'caption': caption_text,
+            'parse_mode': 'Markdown',
             'reply_markup': json.dumps(keyboard)
         }, files={'photo': photo})
 
@@ -88,9 +89,9 @@ def calculate_vwap(df):
         typical_price = (df['High'] + df['Low'] + df['Close']) / 3
         volume = df['Volume'].replace(0, 1)
         vwap = (typical_price * volume).cumsum() / volume.cumsum()
-        return vwap.iloc[-1]
+        return float(vwap.iloc[-1])
     except Exception:
-        return df['Close'].iloc[-1]
+        return float(df['Close'].iloc[-1])
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -98,7 +99,7 @@ def calculate_rsi(series, period=14):
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    return rsi.iloc[-1]
+    return float(rsi.iloc[-1])
 
 def detect_symbol(query):
     q = query.upper()
@@ -118,61 +119,89 @@ def detect_symbol(query):
             return sym, name
     return "NIFTYBEES.NS", "NIFTYBEES"
 
-# --- 4. Bulletproof Instant Quant Execution Engine (No External AI Failure) ---
+# --- 4. Deep Multi-Timeframe Quantitative Execution Card ---
 def get_actionable_analysis(user_query):
     target_sym, asset_name = detect_symbol(user_query)
     try:
         ticker = yf.Ticker(target_sym)
-        df_today = ticker.history(period="1d", interval="1m")
+        df_1m = ticker.history(period="1d", interval="1m")
         df_15m = ticker.history(period="5d", interval="15m")
-        df_1mo = ticker.history(period="1mo", interval="1d")
+        df_1h = ticker.history(period="1mo", interval="60m")
+        df_daily = ticker.history(period="6mo", interval="1d")
 
-        if df_today.empty or df_15m.empty:
-            return f"⚠️ {asset_name} ka live data abhi market me fetch nahi ho raha."
+        if df_1m.empty or df_15m.empty or df_daily.empty:
+            return f"⚠️ {asset_name} ka live tick data fetch nahi hua. Market status check karein."
 
-        curr_p = float(df_today['Close'].iloc[-1])
-        day_low = float(df_today['Low'].min())
-        day_high = float(df_today['High'].max())
-        vwap_p = float(calculate_vwap(df_15m))
-        rsi_val = float(calculate_rsi(df_15m['Close']))
+        curr_p = float(df_1m['Close'].iloc[-1])
+        day_low = float(df_1m['Low'].min())
+        day_high = float(df_1m['High'].max())
+        drop_from_high = ((day_high - curr_p) / day_high) * 100
 
-        # Fibonacci calculation on 1 month range
-        h_mo = float(df_1mo['High'].max())
-        l_mo = float(df_1mo['Low'].min())
-        fib_618 = h_mo - (0.618 * (h_mo - l_mo))
+        # Multi-timeframe indicators
+        rsi_15m = calculate_rsi(df_15m['Close'])
+        rsi_1h = calculate_rsi(df_1h['Close']) if len(df_1h) >= 15 else rsi_15m
+        rsi_daily = calculate_rsi(df_daily['Close']) if len(df_daily) >= 15 else 50.0
 
-        # Drop from day high
-        drop_pct = ((day_high - curr_p) / day_high) * 100
+        vwap_val = calculate_vwap(df_15m)
+        sma_50 = float(df_daily['Close'].tail(50).mean())
 
-        # High Conviction Strategy Logic
-        if rsi_val < 32 and curr_p < vwap_p:
-            verdict = "🟢 STRONG ACCUMULATE (Oversold Dip)"
-            action = f"Favorable Risk-to-Reward. Safe entry zone: ₹{curr_p:.2f} - ₹{day_low:.2f}."
-        elif curr_p > vwap_p and rsi_val > 65:
-            verdict = "🔴 DO NOT CHASE (Overheated / Near Resistance)"
-            action = f"Pullback ka wait karein. Re-entry zone near VWAP: ₹{vwap_p:.2f}."
+        # Fibonacci Golden Pocket from 1-Hour Chart
+        h_1h = float(df_1h['High'].max())
+        l_1h = float(df_1h['Low'].min())
+        diff_1h = h_1h - l_1h
+        fib_500 = h_1h - (0.500 * diff_1h)
+        fib_618 = h_1h - (0.618 * diff_1h)
+
+        # Multi-timeframe signals
+        trend_daily = "🟢 BULLISH (> 50 SMA)" if curr_p >= sma_50 else "🔴 BEARISH (< 50 SMA)"
+        vwap_status = "BULLISH (Above VWAP)" if curr_p >= vwap_val else "DISCOUNT (Below VWAP)"
+
+        # Concrete Entry / Target / Stop Loss Math
+        if rsi_15m <= 32 or curr_p <= fib_618:
+            verdict = "🔥 STRONG BUY / ACCUMULATE (Oversold Dip)"
+            entry_zone = f"₹{curr_p:.2f} - ₹{day_low:.2f}"
+            t1 = curr_p * 1.015
+            t2 = curr_p * 1.025
+            sl_level = day_low * 0.992
+            action = f"Immediate Entry viable. Tranche 1 (20% Capital) deploy karein."
+        elif curr_p > vwap_val and rsi_15m >= 65:
+            verdict = "⛔ DO NOT BUY (Near Local Resistance)"
+            entry_zone = f"Wait for Dip near VWAP: ₹{vwap_val:.2f}"
+            t1 = curr_p * 1.015
+            t2 = curr_p * 1.025
+            sl_level = vwap_val * 0.99
+            action = "Overbought zone me entry lene se bachein. Pullback ka intezaar karein."
         else:
-            verdict = "🟡 NEUTRAL RANGE / CONSOLIDATION"
-            action = f"Day Low (₹{day_low:.2f}) break hone par watch karein. Reversal support: ₹{fib_618:.2f}."
+            verdict = "⏳ WAIT & WATCH (Neutral Range)"
+            entry_zone = f"Wait for reversal at ₹{day_low:.2f} or ₹{fib_618:.2f}"
+            t1 = curr_p * 1.015
+            t2 = curr_p * 1.025
+            sl_level = day_low * 0.992
+            action = f"Jab tak price ₹{vwap_val:.2f} cross na kare ya ₹{fib_618:.2f} pocket par na aaye, wait karein."
 
         report = (
-            f"📊 *{asset_name} QUANTITATIVE AUDIT*\n"
+            f"🎯 *TRADE EXECUTION AUDIT: {asset_name}*\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 *Current Price:* ₹{curr_p:.2f}\n"
-            f"📉 *Day's Low:* ₹{day_low:.2f}\n"
-            f"📈 *Day's High:* ₹{day_high:.2f} (-{drop_pct:.2f}% from High)\n"
-            f"📐 *VWAP (15m):* ₹{vwap_p:.2f} ({'+' if curr_p >= vwap_p else ''}{((curr_p-vwap_p)/vwap_p)*100:.2f}%)\n"
-            f"⚡ *RSI (15m):* {rsi_val:.1f}\n"
-            f"🛡️ *61.8% Fibo Pocket:* ₹{fib_618:.2f}\n"
+            f"💰 *Live Price:* ₹{curr_p:.2f} | *Day Low:* ₹{day_low:.2f} | *Day High:* ₹{day_high:.2f}\n"
+            f"📉 *Drop From High:* -{drop_from_high:.2f}%\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"🎯 *VERDICT:* {verdict}\n"
-            f"👉 *ACTION PLAN:* {action}\n"
+            f"⏱️ *MULTI-TIMEFRAME RADAR:*\n"
+            f"• 15m (Entry Momentum): RSI *{rsi_15m:.1f}* | VWAP *₹{vwap_val:.2f}* ({vwap_status})\n"
+            f"• 1h (Structure): RSI *{rsi_1h:.1f}* | 61.8% Fibo Pocket: *₹{fib_618:.2f}*\n"
+            f"• Daily (Macro Trend): RSI *{rsi_daily:.1f}* | Trend: *{trend_daily}*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🚨 *TRADE CALL:* {verdict}\n"
+            f"📍 *Recommended Entry:* {entry_zone}\n"
+            f"🎯 *Target 1 (+1.5%):* ₹{t1:.2f}\n"
+            f"🎯 *Target 2 (+2.5%):* ₹{t2:.2f}\n"
+            f"🛡️ *Invalidation / SL:* ₹{sl_level:.2f}\n"
+            f"👉 *Action:* {action}\n"
             f"━━━━━━━━━━━━━━━━━━━"
         )
         return report
 
     except Exception as e:
-        return f"⚠️ Error calculating metrics: {str(e)}"
+        return f"⚠️ Calculation issue: {str(e)}"
 
 # --- 5. Interactive Telegram Listener ---
 def telegram_listener():
@@ -204,15 +233,15 @@ def telegram_listener():
                             state["awaiting_qty"] = True
                             save_state(state)
 
-                            send_telegram_msg(f"✅ Tranche {t_num} Logged at ₹{p:.2f}!\nReply me Quantity bhejein (e.g. 20).")
+                            send_telegram_msg(f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n👉 Quantity reply karein (e.g. `25`).")
                         elif data == "skip_entry":
                             state["status"] = "WAITING_STRONG"
                             save_state(state)
-                            send_telegram_msg("👌 Entry Skipped. Scanner waiting for higher confluence.")
+                            send_telegram_msg("👌 *Entry Skipped.* Bot looking for deeper support.")
                         elif data == "exit_trade":
                             state = {"tranche_level": 0, "entry_price": 0.0, "qty": 0, "status": "IDLE", "awaiting_qty": False, "trailing_sl": 0.0, "max_price_seen": 0.0, "last_alerted_price": 0.0}
                             save_state(state)
-                            send_telegram_msg("🏁 Position Closed. Portfolio reset to 100% Cash.")
+                            send_telegram_msg("🏁 *Position Closed.* Capital 100% Free.")
 
                     elif "message" in update and "text" in update["message"]:
                         msg_text = update["message"]["text"].strip()
@@ -238,42 +267,50 @@ def telegram_listener():
 
                                 target_p = avg_price * 1.025
                                 send_telegram_msg(
-                                    f"💼 *PORTFOLIO UPDATED*\n"
-                                    f"Units: {total_qty} | Avg Buy: ₹{avg_price:.2f} | Target (+2.5%): ₹{target_p:.2f}"
+                                    f"💼 *PORTFOLIO POSITION RECORDED*\n"
+                                    f"━━━━━━━━━━━━━━━━━━━\n"
+                                    f"📦 Total Units: *{total_qty}*\n"
+                                    f"💰 Net Avg Buy: *₹{avg_price:.2f}*\n"
+                                    f"🎯 Target (+2.5%): *₹{target_p:.2f}*\n"
+                                    f"━━━━━━━━━━━━━━━━━━━"
                                 )
                                 continue
 
-                        # Instant direct calculation output
-                        ans = get_actionable_analysis(msg_text)
-                        send_telegram_msg(ans)
+                        # Instant multi-timeframe trade plan
+                        trade_card = get_actionable_analysis(msg_text)
+                        send_telegram_msg(trade_card)
 
         except Exception:
             pass
         time.sleep(1)
 
-# --- 6. Live Price Movement & Confluence Dip Tracker ---
+# --- 6. Live Price Movement & Dip Scanner ---
 def check_market():
     last_reported_drop = 0
     ist = pytz.timezone("Asia/Kolkata")
 
-    send_telegram_msg("🚀 *Instant Quantitative Terminal Online!*\n• Real-time Day Low/High, VWAP & RSI active\n• Live ₹1.0 move alerts enabled")
+    send_telegram_msg("🚀 *Multi-Timeframe Execution Terminal Active!*\n• Multi-TF Radar: 15m | 1h | Daily\n• Exact Entry, Target & SL ready\n• Ask any stock or NIFTYBEES!")
 
     while True:
         try:
             now = datetime.now(ist)
 
-            # Market Hours (9:15 AM - 3:30 PM, Monday-Friday)
             if now.weekday() < 5 and (now.hour > 9 or (now.hour == 9 and now.minute >= 15)) and (now.hour < 15 or (now.hour == 15 and now.minute <= 30)):
                 etf = yf.Ticker("NIFTYBEES.NS")
                 df_1m = etf.history(period="1d", interval="1m")
                 df_15m = etf.history(period="5d", interval="15m")
+                df_1h = etf.history(period="1mo", interval="60m")
 
-                curr_price = df_1m['Close'].iloc[-1]
-                day_high = df_15m['High'].max()
-                day_low = df_15m['Low'].min()
+                curr_price = float(df_1m['Close'].iloc[-1])
+                day_high = float(df_15m['High'].max())
+                day_low = float(df_1m['Low'].min())
                 drop_pct = ((day_high - curr_price) / day_high) * 100
                 vwap_val = calculate_vwap(df_15m)
                 rsi_15m = calculate_rsi(df_15m['Close'])
+
+                h_1h = float(df_1h['High'].max())
+                l_1h = float(df_1h['Low'].min())
+                fib_618 = h_1h - (0.618 * (h_1h - l_1h))
 
                 state = load_state()
                 last_price = state.get("last_alerted_price", 0.0)
@@ -295,7 +332,7 @@ def check_market():
 
                     send_telegram_msg(
                         f"{icon} *PRICE MOVEMENT TICK*\n"
-                        f"💰 Current: *₹{curr_price:.2f}* (Low: ₹{day_low:.2f})\n"
+                        f"💰 Current: *₹{curr_price:.2f}* (Day Low: ₹{day_low:.2f})\n"
                         f"🔄 Shift: {direction} from ₹{last_price:.2f} ({diff:+.2f})\n"
                         f"📊 15m RSI: *{rsi_15m:.1f}* | VWAP: *₹{vwap_val:.2f}*\n"
                         f"💼 Position: {pos_msg}"
@@ -303,7 +340,7 @@ def check_market():
                     state["last_alerted_price"] = curr_price
                     save_state(state)
 
-                # Trailing SL & Targets
+                # Auto-Profit Booking Alert (+2.5%)
                 if state.get("status") == "HOLDING" and state.get("qty", 0) > 0:
                     entry_p = state["entry_price"]
                     qty = state["qty"]
@@ -314,12 +351,12 @@ def check_market():
                         exit_kb = {"inline_keyboard": [[{"text": "🏁 Book Full Profit", "callback_data": "exit_trade"}]]}
                         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": CHAT_ID,
-                            "text": f"🎉 *TARGET REACHED (+2.5%)*\nSell: ₹{curr_price:.2f} | Net Profit: *₹{net_pnl:+.2f}*",
+                            "text": f"🎉 *TARGET HIT (+2.5%)*\nSell: ₹{curr_price:.2f} | Net Realized: *₹{net_pnl:+.2f}*",
                             "parse_mode": "Markdown",
                             "reply_markup": json.dumps(exit_kb)
                         })
 
-                # Tranche Dip Signals
+                # Confluence Dip Buy Triggers
                 should_alert = False
                 target_tranche = 1
                 alloc_text = "Deploy 20% Capital (Tranche 1)"
@@ -341,10 +378,12 @@ def check_market():
                     last_reported_drop = int(drop_pct)
                     img = generate_chart(df_15m)
                     caption = (
-                        f"🚨 *NIFTYBEES DIP SIGNAL*\n"
-                        f"💰 *Price:* ₹{curr_price:.2f} (Low: ₹{day_low:.2f})\n"
-                        f"📊 *VWAP:* ₹{vwap_val:.2f} | *RSI:* {rsi_15m:.1f}\n"
-                        f"👉 *Plan:* {alloc_text}"
+                        f"🚨 *NIFTYBEES DIP CONFLUENCE*\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"💰 *Price:* ₹{curr_price:.2f} (Day Low: ₹{day_low:.2f})\n"
+                        f"📊 *15m RSI:* {rsi_15m:.1f} | *VWAP:* ₹{vwap_val:.2f}\n"
+                        f"🛡️ *61.8% Fibo Pocket:* ₹{fib_618:.2f}\n"
+                        f"👉 *Action:* {alloc_text}"
                     )
                     send_alert_with_buttons(img, caption, target_tranche)
 
