@@ -168,7 +168,7 @@ Keep total response under 120 words.
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "llama-3.3-70b-versatile",
+            "model": "llama-3.1-70b-versatile",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2
         }
