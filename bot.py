@@ -11,7 +11,8 @@ import pandas as pd
 import yfinance as yf
 import mplfinance as mpf
 
-BOT_TOKEN = "8695074642:AAHGHqaS1q-EkoEL5tY-gv7yvj5GAaF3lJ8"
+# Updated Bot Token & Admin Chat ID
+BOT_TOKEN = "8695074642:AAF44kKVuUiD5x7SMtW5M_nygHMoTIS0H5g"
 CHAT_ID = "1152142289"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
@@ -40,7 +41,7 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
 
-# --- 1. Web Server ---
+# --- 1. Web Server for Render 24/7 ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -52,12 +53,11 @@ def run_web_server():
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
-# --- 2. Safe Telegram Messenger (Never crashes on markdown) ---
+# --- 2. Safe Telegram Messenger ---
 def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True}
     res = requests.post(url, json=payload, timeout=10)
-    # Agar Telegram markdown parse error de toh bina formatting ke send karega
     if res.status_code != 200:
         payload_plain = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
         requests.post(url, json=payload_plain, timeout=10)
@@ -111,7 +111,7 @@ def calculate_fibonacci(high, low):
         "fib_618": high - 0.618 * diff
     }
 
-# --- 4. Dynamic Symbol Detection & Fast AI Analysis ---
+# --- 4. Dynamic Symbol Detection & Multi-Stock Engine ---
 def detect_symbol(query):
     q = query.upper()
     common = {
@@ -128,7 +128,7 @@ def detect_symbol(query):
 
 def ask_groq_market_analyst(user_query):
     if not GROQ_API_KEY:
-        return "⚠️ GROQ_API_KEY Render Environment me set nahi hai. Render par add karein."
+        return "⚠️ GROQ_API_KEY Render Environment me set nahi hai."
 
     try:
         target_symbol, asset_name = detect_symbol(user_query)
@@ -154,12 +154,12 @@ RSI (Daily): {rsi_val:.1f}
 Fibonacci 61.8% Support: ₹{fibs['fib_618']:.2f}
 
 Format your response exactly like this in concise Hindi/Hinglish:
-🎯 **VERDICT:** (State bottom support / trajectory directly)
+🎯 **VERDICT:** (Direct price trajectory & bottom support zone)
 🔬 **LEVELS:**
 - Immediate Support: ₹...
 - Downside Risk Level: ₹...
 - Upside Reversal Level: ₹...
-⚡ **ACTION PLAN:** (Clear advice on whether to buy, wait, or exit)
+⚡ **ACTION PLAN:** (Clear advice on whether to buy, wait, or accumulate)
 Keep total answer under 120 words. No disclaimers.
 """
         endpoint = "https://api.groq.com/openai/v1/chat/completions"
@@ -172,11 +172,10 @@ Keep total answer under 120 words. No disclaimers.
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2
         }
-        res = requests.post(endpoint, headers=headers, json=payload, timeout=12)
+        res = requests.post(endpoint, headers=headers, json=payload, timeout=15)
         
         if res.status_code == 200:
-            data = res.json()
-            return data["choices"][0]["message"]["content"]
+            return res.json()["choices"][0]["message"]["content"]
         else:
             return f"⚠️ Groq API Error ({res.status_code}): {res.text}"
     except Exception as err:
@@ -258,7 +257,7 @@ def telegram_listener():
                                 )
                                 continue
 
-                        send_telegram_msg("🧠 *Extracting market data & generating AI analysis...*")
+                        send_telegram_msg("🧠 *Analyzing market data & generating AI report...*")
                         ai_verdict = ask_groq_market_analyst(msg_text)
                         send_telegram_msg(ai_verdict)
 
@@ -266,11 +265,13 @@ def telegram_listener():
             pass
         time.sleep(1)
 
-# --- 6. Live Price Movement Tracker & Confluence Scanner ---
+# --- 6. Live Price Movement Tracker ---
 def check_market():
     last_reported_drop = 0
     ist = pytz.timezone("Asia/Kolkata")
     
+    send_telegram_msg("🚀 *Personal AI Quantitative Terminal Online!*\n• Connected to Private Token\n• Ask any stock or NIFTYBEES question anytime!")
+
     while True:
         try:
             now = datetime.now(ist)
@@ -328,7 +329,7 @@ def check_market():
                         exit_kb = {"inline_keyboard": [[{"text": "🏁 Book Full Profit", "callback_data": "exit_trade"}]]}
                         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": CHAT_ID,
-                            "text": f"🎉 *TARGET REACHED (+2.5%)*\nSell: ₹{curr_price:.2f} | Net: *₹{net_pnl:+.2f}*",
+                            "text": f"🎉 *TARGET REACHED (+2.5%)*\nSell: ₹{curr_price:.2f} | Net Profit: *₹{net_pnl:+.2f}*",
                             "parse_mode": "Markdown",
                             "reply_markup": json.dumps(exit_kb)
                         })
