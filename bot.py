@@ -39,19 +39,19 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
 
-# --- 1. Web Server for Render 24/7 ---
+# --- 1. Render Keep-Alive Web Server ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Quantitative Sniper Terminal Active!")
+        self.wfile.write(b"Professional Price Action Terminal Active!")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
-# --- 2. Telegram Messengers ---
+# --- 2. Reliable Telegram Messenger ---
 def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": str(text), "parse_mode": "Markdown", "disable_web_page_preview": True}
@@ -82,7 +82,7 @@ def generate_chart(df):
     mpf.plot(df.tail(30), type='candle', style='charles', savefig=chart_path, volume=False)
     return chart_path
 
-# --- 3. Indicators ---
+# --- 3. Indicators & Math ---
 def calculate_vwap(df):
     try:
         typical_price = (df['High'] + df['Low'] + df['Close']) / 3
@@ -118,83 +118,105 @@ def detect_symbol(query):
             return sym, name
     return "NIFTYBEES.NS", "NIFTYBEES"
 
-# --- 4. High-Conviction Quantitative Action Plan ---
-def get_actionable_analysis(user_query):
+# --- 4. Professional Trader Reversal Setup Engine ---
+def analyze_trader_setup(user_query):
     target_sym, asset_name = detect_symbol(user_query)
     try:
         ticker = yf.Ticker(target_sym)
-        df_1m = ticker.history(period="1d", interval="1m")
         df_15m = ticker.history(period="5d", interval="15m")
         df_1h = ticker.history(period="1mo", interval="60m")
+        df_1d = ticker.history(period="3mo", interval="1d")
 
-        if df_1m.empty or df_15m.empty or df_1h.empty:
-            return f"⚠️ {asset_name} ka live data fetch nahi ho raha."
+        if df_15m.empty or df_1h.empty:
+            return f"⚠️ {asset_name} ka market data abhi live nahi hai."
 
-        curr_p = float(df_1m['Close'].iloc[-1])
-        day_low = float(df_1m['Low'].min())
-        day_high = float(df_1m['High'].max())
-        drop_pct = ((day_high - curr_p) / day_high) * 100
+        # Current & Previous Candles (15-min)
+        curr_c = df_15m.iloc[-1]
+        prev_c = df_15m.iloc[-2]
+
+        curr_p = float(curr_c['Close'])
+        day_low = float(df_15m['Low'].tail(25).min())
+        day_high = float(df_15m['High'].tail(25).max())
         vwap_val = calculate_vwap(df_15m)
         rsi_15m = calculate_rsi(df_15m['Close'])
 
-        # Fibonacci calculation on 1h swing
+        # Structure: 1-Hour Fibonacci Golden Pocket
         h_1h = float(df_1h['High'].max())
         l_1h = float(df_1h['Low'].min())
-        fib_618 = h_1h - (0.618 * (h_1h - l_1h))
-        fib_500 = h_1h - (0.500 * (h_1h - l_1h))
+        diff_1h = h_1h - l_1h
+        fib_618 = float(h_1h - (0.618 * diff_1h))
+        fib_500 = float(h_1h - (0.500 * diff_1h))
 
-        # Direct High-Probability Setup Rules
-        # Rule 1: Dip Setup Activated (Price near day low or 61.8% Fibo AND RSI <= 35)
-        is_buy_ready = (rsi_15m <= 35) or (curr_p <= fib_618) or (curr_p <= day_low * 1.002 and curr_p < vwap_val)
+        # Price Action Reversal Rules:
+        # 1. Price is in value discount (near day low, below VWAP, or at 61.8% Fibo)
+        in_value_zone = (curr_p <= vwap_val) or (curr_p <= fib_618 * 1.005) or (curr_p <= day_low * 1.004)
+        
+        # 2. Bullish Reversal Trigger (Hammer wick OR Green candle breaking previous candle high)
+        lower_wick = min(curr_c['Open'], curr_c['Close']) - curr_c['Low']
+        candle_body = abs(curr_c['Close'] - curr_c['Open'])
+        is_hammer = lower_wick > (candle_body * 1.5) and (curr_c['Close'] >= curr_c['Open'])
+        is_bullish_break = (curr_c['Close'] > prev_c['High']) and (curr_c['Close'] > curr_c['Open'])
+        reversal_confirmed = is_hammer or is_bullish_break
 
-        if is_buy_ready:
-            signal_status = "🟢 BUY SETUP ACTIVE (SNIPER ENTRY)"
-            exact_buy = f"₹{curr_p:.2f} (Ya Limit Order ₹{day_low:.2f})"
-            target_1 = curr_p * 1.015
-            target_2 = curr_p * 1.025
-            sl_price = day_low * 0.993
-            action_direct = (
-                f"✅ **ABHI BUY KAREIN (Tranche 1 - 20% Capital)**\n"
-                f"• Entry Price: **₹{curr_p:.2f}**\n"
-                f"• Target 1 (+1.5%): **₹{target_1:.2f}**\n"
-                f"• Target 2 (+2.5%): **₹{target_2:.2f}**\n"
-                f"• Strict Stop-Loss: **₹{sl_price:.2f}**"
+        # Setup Verdict Decision Tree
+        if in_value_zone and (reversal_confirmed or rsi_15m <= 32):
+            pattern_name = "Bullish Hammer Reversal" if is_hammer else "Support Breakout Candle"
+            stop_loss = float(day_low * 0.993)
+            risk = curr_p - stop_loss
+            t1 = float(curr_p + (risk * 1.5))
+            t2 = float(curr_p + (risk * 2.5))
+
+            card = (
+                f"🔥 *EXECUTION ORDER: {asset_name} BUY SETUP*\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"📍 *Setup Type:* {pattern_name} at Value Support\n"
+                f"💰 *Current Price:* ₹{curr_p:.2f}\n"
+                f"🛡️ *Confirmed Support Level:* ₹{day_low:.2f}\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 *EXACT ORDER TICKET (Tranche 1):*\n"
+                f"👉 **BUY NOW / LIMIT ORDER:** ₹{curr_p:.2f}\n"
+                f"🛑 **STRICT STOP-LOSS:** ₹{stop_loss:.2f} (Risk: ₹{risk:.2f}/share)\n"
+                f"🎯 **TARGET 1 (1:1.5 RR):** ₹{t1:.2f}\n"
+                f"🎯 **TARGET 2 (1:2.5 RR):** ₹{t2:.2f}\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"💡 *Logic:* Price discount zone me girna band hua hai aur buyers ne wick reject kar diya hai."
             )
         elif curr_p > vwap_val and rsi_15m >= 65:
-            signal_status = "🔴 OVERBOUGHT ZONE (DO NOT BUY)"
-            exact_buy = f"Wait for Pullback near ₹{vwap_val:.2f}"
-            action_direct = (
-                f"⛔ **ABHI ENTRY MAT LO** (Top pe buy karke fasne ka risk hai).\n"
-                f"👉 Pullback aane par **₹{vwap_val:.2f}** ke pass entry banegi."
+            card = (
+                f"⛔ *NO TRADE ZONE: {asset_name} OVEREXTENDED*\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"💰 *Price:* ₹{curr_p:.2f} | *VWAP:* ₹{vwap_val:.2f}\n"
+                f"⚡ *15m RSI:* {rsi_15m:.1f} (Overbought / Resistance)\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"❌ **Yahan Buy Mat Karein** (Top pe buy karke trap hone ka khatra hai).\n"
+                f"⏳ **Re-entry Level:** Pullback ka wait karein jab tak price **₹{vwap_val:.2f}** ke pass na aaye."
             )
         else:
-            signal_status = "⏳ WAITING FOR HIGH-PROBABILITY DIP"
-            # Optimal trigger level jahan buying banti hai
-            ideal_entry = min(vwap_val * 0.995, max(fib_618, day_low))
-            target_calc = ideal_entry * 1.025
-            action_direct = (
-                f"⏸️ **MARKET IN-BETWEEN HAI (Wait Karein)**\n"
-                f"👉 Setup banne ke liye Limit Order lagayein: **₹{ideal_entry:.2f}**\n"
-                f"🎯 Wahan se Expected Target (+2.5%): **₹{target_calc:.2f}**\n"
-                f"💡 Current price (₹{curr_p:.2f}) se ₹{abs(curr_p - ideal_entry):.2f} ka dip aane par buy trigger hoga."
+            # Reversal pending - Give exact limit orders where to buy
+            best_entry = round(max(fib_618, day_low), 2)
+            expected_sl = round(best_entry * 0.993, 2)
+            expected_target = round(best_entry * 1.025, 2)
+            diff_from_entry = round(curr_p - best_entry, 2)
+
+            card = (
+                f"⏳ *WAITING FOR REVERSAL SETUP: {asset_name}*\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"💰 *Live Price:* ₹{curr_p:.2f} | *Day Low:* ₹{day_low:.2f}\n"
+                f"📐 *VWAP:* ₹{vwap_val:.2f} | *61.8% Fibo Pocket:* ₹{fib_618:.2f}\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🔍 **TRADER'S ACTION PLAN:**\n"
+                f"Abhi price beech me float ho rahi hai (No edge).\n\n"
+                f"👉 **SETUP ENTRY LEVEL:** **₹{best_entry:.2f}**\n"
+                f"• Current price se dip required: **₹{diff_from_entry:.2f}**\n"
+                f"• Us level par aane ke baad Target: **₹{expected_target:.2f} (+2.5%)**\n"
+                f"• Invalidation / SL: **₹{expected_sl:.2f}**\n\n"
+                f"💡 Broker terminal me **₹{best_entry:.2f}** ka GTT ya Limit Order laga kar chod dein."
             )
 
-        card = (
-            f"🎯 *{asset_name} ACTIONABLE SETUP CARD*\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 *Current Price:* ₹{curr_p:.2f}\n"
-            f"📉 *Day Low:* ₹{day_low:.2f} | 📈 *Day High:* ₹{day_high:.2f}\n"
-            f"📊 *VWAP (Discount Benchmark):* ₹{vwap_val:.2f}\n"
-            f"⚡ *15m RSI:* {rsi_15m:.1f} | *61.8% Support:* ₹{fib_618:.2f}\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"🚨 *STATUS:* {signal_status}\n\n"
-            f"{action_direct}\n"
-            f"━━━━━━━━━━━━━━━━━━━"
-        )
         return card
 
     except Exception as e:
-        return f"⚠️ Calculation error: {str(e)}"
+        return f"⚠️ Setup calculation error: {str(e)}"
 
 # --- 5. Interactive Telegram Listener ---
 def telegram_listener():
@@ -226,7 +248,7 @@ def telegram_listener():
                             state["awaiting_qty"] = True
                             save_state(state)
 
-                            send_telegram_msg(f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n👉 Reply me apni Quantity bhejein (e.g. `20`).")
+                            send_telegram_msg(f"✅ *Tranche {t_num} Logged at ₹{p:.2f}!*\n\n👉 Quantity reply karein (e.g. `25`).")
                         elif data == "skip_entry":
                             state["status"] = "WAITING_STRONG"
                             save_state(state)
@@ -269,9 +291,9 @@ def telegram_listener():
                                 )
                                 continue
 
-                        # Direct execution card
-                        card_response = get_actionable_analysis(msg_text)
-                        send_telegram_msg(card_response)
+                        # Real-time Trade Ticket
+                        response_card = analyze_trader_setup(msg_text)
+                        send_telegram_msg(response_card)
 
         except Exception:
             pass
@@ -282,7 +304,7 @@ def check_market():
     last_reported_drop = 0
     ist = pytz.timezone("Asia/Kolkata")
 
-    send_telegram_msg("🚀 *Sniper Quantitative Terminal Live!*\n• Direct Buy / Target / SL Setup Enabled\n• Send stock name anytime for exact level.")
+    send_telegram_msg("🚀 *Professional Quantitative Terminal Active!*\n• Price Action Reversal Detector Online\n• Exact Buy, SL & Target Tickets ready.")
 
     while True:
         try:
@@ -344,7 +366,7 @@ def check_market():
                             "reply_markup": json.dumps(exit_kb)
                         })
 
-                # Confluence Dip Buy Triggers
+                # Confluence Reversal Dip Alert
                 should_alert = False
                 target_tranche = 1
                 alloc_text = "Deploy 20% Capital (Tranche 1)"
@@ -366,11 +388,11 @@ def check_market():
                     last_reported_drop = int(drop_pct)
                     img = generate_chart(df_15m)
                     caption = (
-                        f"🚨 *BUY TRIGGER (CONFLUENCE DIP)*\n"
+                        f"🚨 *REVERSAL DIP DETECTED*\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"💰 *Entry Price:* ₹{curr_price:.2f}\n"
+                        f"💰 *Entry:* ₹{curr_price:.2f}\n"
+                        f"🛑 *Stop-Loss:* ₹{(day_low*0.993):.2f}\n"
                         f"🎯 *Target (+2.5%):* ₹{(curr_price*1.025):.2f}\n"
-                        f"🛡️ *Stop-Loss:* ₹{(day_low*0.993):.2f}\n"
                         f"👉 *Action:* {alloc_text}"
                     )
                     send_alert_with_buttons(img, caption, target_tranche)
